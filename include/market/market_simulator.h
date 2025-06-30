@@ -1,0 +1,131 @@
+#pragma once
+
+#include "core/types.h"
+#include "core/order.h"
+#include "market/matching_engine.h"
+#include "market/trader.h"
+#include "market/rl_trader.h"
+#include <unordered_map>
+#include <vector>
+#include <memory>
+#include <functional>
+using namespace std;
+
+namespace deepquote {
+
+// ============================================================================
+// Market Simulator Implementation
+// ============================================================================
+
+class MarketSimulator {
+public:
+    MarketSimulator(const vector<string>& symbols);
+    ~MarketSimulator() = default;
+    
+    // Order processing
+    vector<Trade> processOrder(shared_ptr<Order> order);
+    vector<Trade> processOrders(const vector<shared_ptr<Order>>& orders);
+    
+    // Market data access
+    OrderBookSnapshot getSnapshot(const string& symbol) const;
+    vector<OrderBookSnapshot> getAllSnapshots() const;
+    
+    // Market data for specific symbols
+    Price getBestBid(const string& symbol) const;
+    Price getBestAsk(const string& symbol) const;
+    Price getMidPrice(const string& symbol) const;
+    Price getSpread(const string& symbol) const;
+    
+    // Order book access
+    MatchingEngine& getMatchingEngine(const string& symbol);
+    const MatchingEngine& getMatchingEngine(const string& symbol) const;
+    
+    // Symbol management
+    vector<string> getSymbols() const;
+    bool hasSymbol(const string& symbol) const;
+    size_t getSymbolCount() const;
+    
+    // Trade callbacks (global and per-symbol)
+    using TradeCallback = function<void(const Trade&)>;
+    void setGlobalTradeCallback(TradeCallback callback);
+    void setSymbolTradeCallback(const string& symbol, TradeCallback callback);
+    
+    // Market statistics
+    size_t getTotalOrderCount() const;
+    size_t getTotalTradeCount() const;
+    vector<Trade> getAllTrades() const;
+    
+    // ============================================================================
+    // Trader Management
+    // ============================================================================
+    
+    // Regular trader registration and management
+    void registerTrader(const string& trader_id, double initial_cash = 0.0);
+    void unregisterTrader(const string& trader_id);
+    bool hasTrader(const string& trader_id) const;
+    vector<string> getTraderIds() const;
+    size_t getTraderCount() const;
+    
+    // Regular trader access
+    Trader& getTrader(const string& trader_id);
+    const Trader& getTrader(const string& trader_id) const;
+    
+    // ============================================================================
+    // RL Trader Management
+    // ============================================================================
+    
+    // RL trader registration and management
+    void addRLTrader(const shared_ptr<RLTrader>& rl_trader);
+    void removeRLTrader(const string& agent_id);
+    bool hasRLTrader(const string& agent_id) const;
+    vector<string> getRLTraderIds() const;
+    size_t getRLTraderCount() const;
+    
+    // RL trader access
+    shared_ptr<RLTrader> getRLTrader(const string& agent_id);
+    shared_ptr<const RLTrader> getRLTrader(const string& agent_id) const;
+    vector<shared_ptr<RLTrader>> getAllRLTraders();
+    vector<shared_ptr<const RLTrader>> getAllRLTraders() const;
+    
+    // RL trader statistics
+    unordered_map<string, RLTraderStats> getAllRLTraderStats() const;
+    void resetAllRLEpisodes();
+    void addRewardToRLTrader(const string& agent_id, double reward);
+    
+    // Trader statistics (works for both regular and RL traders)
+    unordered_map<string, double> getMarkPrices() const;
+    void updateMarkPrices(const unordered_map<string, double>& mark_prices);
+    void markAllTradersToMarket();
+    
+    // Portfolio analytics
+    double getTotalMarketValue() const;
+    double getTotalRealizedPnL() const;
+    double getTotalUnrealizedPnL() const;
+    
+    // Utility
+    bool isEmpty() const;
+    void reset();
+    void resetTraders();
+    void resetRLTraders();
+    
+    std::shared_ptr<Trader> getTraderPtr(const std::string& trader_id);
+    
+private:
+    unordered_map<string, unique_ptr<MatchingEngine>> engines_;
+    unordered_map<string, shared_ptr<Trader>> traders_;
+    unordered_map<string, shared_ptr<RLTrader>> rl_traders_;
+    unordered_map<string, double> mark_prices_;
+    unordered_map<OrderId, string> order_to_trader_;
+    TradeCallback global_trade_callback_;
+    vector<Trade> all_trades_;
+    
+    // Helper methods
+    void initializeEngine(const string& symbol);
+    void onTrade(const Trade& trade);
+    bool isValidOrder(const shared_ptr<Order>& order) const;
+    void updateTraderPositions(const Trade& trade);
+    void trackOrder(const shared_ptr<Order>& order);
+    void updateRLTraderPositions(const Trade& trade);
+};
+
+} // namespace deepquote 
