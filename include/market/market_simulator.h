@@ -5,6 +5,7 @@
 #include "market/matching_engine.h"
 #include "market/trader.h"
 #include "market/rl_trader.h"
+#include "market/market_events.h"
 #include <unordered_map>
 #include <vector>
 #include <memory>
@@ -102,6 +103,22 @@ public:
     double getTotalRealizedPnL() const;
     double getTotalUnrealizedPnL() const;
     
+    // ============================================================================
+    // Market Events and Price Movement
+    // ============================================================================
+    
+    // Market events
+    void enableMarketEvents(bool enable = true);
+    void setEventProbability(double probability);
+    void updateMarketEvents(double dt);
+    vector<MarketEvent> getActiveEvents() const;
+    size_t getActiveEventCount() const;
+    
+    // Price movement
+    void generatePriceMovement(double dt);
+    void setPriceVolatility(const string& symbol, double volatility);
+    void setPriceDrift(const string& symbol, double drift);
+    
     // Utility
     bool isEmpty() const;
     void reset();
@@ -118,6 +135,12 @@ private:
     unordered_map<OrderId, string> order_to_trader_;
     TradeCallback global_trade_callback_;
     vector<Trade> all_trades_;
+    
+    // Market events and price movement
+    unique_ptr<MarketEventGenerator> event_generator_;
+    unordered_map<string, MicrostructureNoise> noise_generators_;
+    bool market_events_enabled_;
+    double last_update_time_;
     
     // Helper methods
     void initializeEngine(const string& symbol);

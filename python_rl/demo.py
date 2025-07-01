@@ -1,529 +1,337 @@
+#!/usr/bin/env python3
 """
-DeepQuote RL Demo
+DeepQuote Comprehensive Demo
 
-A simple demo showing how to use the reinforcement learning system.
+This demo showcases all the key features of DeepQuote:
+- C++ Market Maker providing liquidity
+- RL Agents trading with different strategies
+- Real market events driving price movements
+- Actual trade execution and position tracking
+- Performance monitoring and analysis
 """
 
+import time
 import numpy as np
-import matplotlib.pyplot as plt
-from environment import DeepQuoteEnv
-from agents import create_agent
+import deepquote_simulator as dq
+from agents import MeanReversionAgent, MomentumAgent, MarketMakingAgent
+from deepquote_env import DeepQuoteEnv
 
-def demo_basic_environment():
-    """Demo the basic environment"""
-    print("=" * 50)
-    print("DeepQuote RL Environment Demo")
-    print("=" * 50)
+def setup_market():
+    """Setup market simulator with market maker and events"""
+    print("Setting up market simulator...")
     
-    # Create environment
-    env = DeepQuoteEnv(
-        symbols=["AAPL", "GOOGL"],
-        initial_cash=100000.0,
-        max_position_size=1000.0,
-        transaction_cost=0.001
-    )
+    # Create market simulator
+    symbols = ["AAPL"]
+    sim = dq.MarketSimulator(symbols)
     
-    print(f"Environment created with symbols: {env.symbols}")
-    print(f"Initial cash: ${env.initial_cash:,.2f}")
-    print(f"Observation space: {env.observation_space}")
-    print(f"Action space: {env.action_space}")
+    # Enable market events for realistic price movements
+    sim.enable_market_events(True)
+    sim.set_event_probability(0.015)  # 1.5% chance of events
     
-    # Run a few episodes with random actions
-    print("\nRunning episodes with random actions...")
+    # Create C++ market maker
+    config = dq.MarketMakerConfig()
+    config.trader_id = "market_maker"
+    config.symbols = symbols
+    config.base_price = 100.0
+    config.spread_pct = 0.001  # 0.1% spread
+    config.order_size = 30.0
+    config.max_orders_per_side = 3
+    config.update_interval_ms = 150
+    config.adaptive_spread = True
     
-    episode_rewards = []
-    episode_pnls = []
+    market_maker = dq.MarketMaker(sim, config)
+    market_maker.start()
     
-    for episode in range(5):
-        obs, info = env.reset()
-        episode_reward = 0
-        step = 0
+    # Let market maker establish liquidity
+    time.sleep(1)
+    
+    return sim, market_maker
+
+def create_traders(sim):
+    """Create and register traders with different strategies"""
+    print("Creating traders with different strategies...")
+    
+    traders = []
+    
+    # Mean Reversion Trader
+    env1 = DeepQuoteEnv(symbols=["AAPL"], trader_id="meanrev", strategy_type="RL")
+    trader1 = MeanReversionAgent(env1, entry_threshold=1.0, exit_threshold=0.2)
+    traders.append(("MeanReversion", trader1, env1))
+    sim.add_rl_trader(env1.trader)
+    
+    # Momentum Trader
+    env2 = DeepQuoteEnv(symbols=["AAPL"], trader_id="momentum", strategy_type="RL")
+    trader2 = MomentumAgent(env2, momentum_threshold=0.001, position_size=0.5)
+    traders.append(("Momentum", trader2, env2))
+    sim.add_rl_trader(env2.trader)
+    
+    # Market Making Trader
+    env3 = DeepQuoteEnv(symbols=["AAPL"], trader_id="mm_agent", strategy_type="RL")
+    trader3 = MarketMakingAgent(env3, order_size=15.0)
+    traders.append(("MarketMaking", trader3, env3))
+    sim.add_rl_trader(env3.trader)
+    
+    return traders
+
+def run_trading_simulation(sim, market_maker, traders, duration_seconds=30):
+    """Run the main trading simulation"""
+    print(f"\nStarting trading simulation for {duration_seconds} seconds...")
+    print("Watch for actual trades being executed!")
+    print("-" * 80)
+    
+    # Track performance
+    total_trades = 0
+    trader_trades = {name: 0 for name, _, _ in traders}
+    last_trade_count = 0
+    start_time = time.time()
+    
+    # Initial market state
+    print(f"Initial Market State:")
+    for symbol in sim.get_symbols():
+        best_bid = sim.get_best_bid(symbol)
+        best_ask = sim.get_best_ask(symbol)
+        spread = best_ask - best_bid
+        print(f"  {symbol}: Bid=${best_bid:.2f}, Ask=${best_ask:.2f}, Spread=${spread:.2f}")
+    
+    print(f"\nInitial Trader Positions:")
+    for trader_name, _, env in traders:
+        trader = env.trader
+        cash = trader.get_cash()
+        inventory = trader.get_inventory("AAPL")
+        pnl = trader.get_realized_pnl()
+        print(f"  {trader_name:15s}: Cash=${cash:8.2f}, Inv={inventory:6.1f}, PnL=${pnl:6.2f}")
+    
+    print("\n" + "=" * 80)
+    print("TRADING ACTIVITY")
+    print("=" * 80)
+    
+    step = 0
+    while time.time() - start_time < duration_seconds:
+        # Update market events
+        sim.update_market_events(0.2)  # 200ms time step
         
-        print(f"\nEpisode {episode + 1}:")
-        print(f"  Initial cash: ${info['cash']:,.2f}")
-        
-        while step < 100:  # Run for 100 steps
-            # Take random action
-            action = env.action_space.sample()
-            obs, reward, done, truncated, info = env.step(action)
+        # Let each trader take an action
+        for trader_name, trader, env in traders:
+            # Get observation and action
+            obs = env._get_obs()
+            action = trader.get_action(obs)
             
-            episode_reward += reward
-            step += 1
+            # Process action
+            obs, reward, done, info = env.step(action)
             
-            if step % 20 == 0:
-                print(f"    Step {step}: Cash=${info['cash']:,.2f}, P&L=${info['total_pnl']:,.2f}")
+            # Check for trades
+            current_trades = sim.get_total_trade_count()
+            if current_trades > last_trade_count:
+                new_trades = current_trades - last_trade_count
+                total_trades += new_trades
+                trader_trades[trader_name] += new_trades
+                last_trade_count = current_trades
+                
+                print(f"\n💰 TRADE EXECUTED! Step {step}")
+                print(f"   Trader: {trader_name}")
+                print(f"   Action: {action[:4]}")
+                print(f"   Reward: {reward:.2f}")
+                print(f"   PnL: {info.get('pnl', 0):.2f}")
+                print(f"   Inventory: {info.get('inventory', 0):.1f}")
+        
+        # Print progress every 10 seconds
+        elapsed = time.time() - start_time
+        if step % 50 == 0 and step > 0:
+            print(f"\n--- {elapsed:.1f}s elapsed ---")
             
-            if done or truncated:
-                break
-        
-        episode_rewards.append(episode_reward)
-        episode_pnls.append(info['total_pnl'])
-        
-        print(f"  Final cash: ${info['cash']:,.2f}")
-        print(f"  Final P&L: ${info['total_pnl']:,.2f}")
-        print(f"  Episode reward: {episode_reward:.2f}")
-    
-    print(f"\nAverage episode reward: {np.mean(episode_rewards):.2f}")
-    print(f"Average P&L: ${np.mean(episode_pnls):,.2f}")
-
-def demo_market_making_agent():
-    """Demo the market making agent"""
-    print("\n" + "=" * 50)
-    print("Market Making Agent Demo")
-    print("=" * 50)
-    
-    # Create environment
-    env = DeepQuoteEnv(
-        symbols=["AAPL"],
-        initial_cash=100000.0,
-        max_position_size=1000.0,
-        transaction_cost=0.001
-    )
-    
-    # Create market making agent
-    agent = create_agent("MarketMaking", env, spread_target=0.001, order_size=10.0)
-    
-    print("Running market making agent...")
-    
-    obs, info = env.reset()
-    episode_reward = 0
-    step = 0
-    
-    print(f"Initial cash: ${info['cash']:,.2f}")
-    
-    while step < 200:  # Run for 200 steps
-        # Get action from agent
-        action = agent.get_action(obs)
-        obs, reward, done, truncated, info = env.step(action)
-        
-        episode_reward += reward
-        step += 1
-        
-        if step % 50 == 0:
-            print(f"Step {step}: Cash=${info['cash']:,.2f}, P&L=${info['total_pnl']:,.2f}")
-            print(f"  Inventory: {info['inventory']}")
-        
-        if done or truncated:
-            break
-    
-    print(f"Final cash: ${info['cash']:,.2f}")
-    print(f"Final P&L: ${info['total_pnl']:,.2f}")
-    print(f"Episode reward: {episode_reward:.2f}")
-
-def demo_mean_reversion_agent():
-    """Demo the mean reversion agent"""
-    print("\n" + "=" * 50)
-    print("Mean Reversion Agent Demo")
-    print("=" * 50)
-    
-    # Create environment
-    env = DeepQuoteEnv(
-        symbols=["AAPL"],
-        initial_cash=100000.0,
-        max_position_size=1000.0,
-        transaction_cost=0.001
-    )
-    
-    # Create mean reversion agent
-    agent = create_agent("MeanReversion", env, lookback_period=20, entry_threshold=2.0)
-    
-    print("Running mean reversion agent...")
-    
-    obs, info = env.reset()
-    episode_reward = 0
-    step = 0
-    
-    print(f"Initial cash: ${info['cash']:,.2f}")
-    
-    while step < 200:  # Run for 200 steps
-        # Get action from agent
-        action = agent.get_action(obs)
-        obs, reward, done, truncated, info = env.step(action)
-        
-        episode_reward += reward
-        step += 1
-        
-        if step % 50 == 0:
-            print(f"Step {step}: Cash=${info['cash']:,.2f}, P&L=${info['total_pnl']:,.2f}")
-            print(f"  Inventory: {info['inventory']}")
-        
-        if done or truncated:
-            break
-    
-    print(f"Final cash: ${info['cash']:,.2f}")
-    print(f"Final P&L: ${info['total_pnl']:,.2f}")
-    print(f"Episode reward: {episode_reward:.2f}")
-
-def demo_price_movement():
-    """Demo price movement and technical indicators"""
-    print("\n" + "=" * 50)
-    print("Price Movement and Technical Indicators Demo")
-    print("=" * 50)
-    
-    # Create environment
-    env = DeepQuoteEnv(
-        symbols=["AAPL"],
-        initial_cash=100000.0,
-        max_position_size=1000.0,
-        transaction_cost=0.001
-    )
-    
-    obs, info = env.reset()
-    
-    # Track price movements
-    prices = []
-    spreads = []
-    steps = []
-    
-    for step in range(100):
-        # Take no action, just observe
-        action = np.array([5, 0, 0, 0.5])  # HOLD action
-        obs, reward, done, truncated, info = env.step(action)
-        
-        # Extract price data from observation
-        mid_price = obs[2]  # Mid price is at index 2
-        spread = obs[3]     # Spread is at index 3
-        
-        prices.append(mid_price)
-        spreads.append(spread)
-        steps.append(step)
-        
-        if step % 20 == 0:
-            print(f"Step {step}: Price=${mid_price:.2f}, Spread=${spread:.4f}")
-    
-    # Plot price movement
-    plt.figure(figsize=(12, 8))
-    
-    plt.subplot(2, 1, 1)
-    plt.plot(steps, prices, 'b-', linewidth=2)
-    plt.title('AAPL Price Movement')
-    plt.ylabel('Price ($)')
-    plt.grid(True)
-    
-    plt.subplot(2, 1, 2)
-    plt.plot(steps, spreads, 'r-', linewidth=2)
-    plt.title('Bid-Ask Spread')
-    plt.ylabel('Spread ($)')
-    plt.xlabel('Step')
-    plt.grid(True)
-    
-    plt.tight_layout()
-    plt.savefig('price_movement_demo.png', dpi=300, bbox_inches='tight')
-    plt.show()
-    
-    print("Price movement plot saved as 'price_movement_demo.png'")
-
-def demo_momentum_agent():
-    """Demo the momentum trading agent"""
-    print("\n" + "=" * 50)
-    print("Momentum Trading Agent Demo")
-    print("=" * 50)
-    
-    # Create environment
-    env = DeepQuoteEnv(
-        symbols=["AAPL"],
-        initial_cash=100000.0,
-        max_position_size=1000.0,
-        transaction_cost=0.001
-    )
-    
-    # Create momentum agent
-    agent = create_agent("Momentum", env, short_window=10, long_window=30, momentum_threshold=0.001)
-    
-    print("Running momentum agent...")
-    
-    obs, info = env.reset()
-    episode_reward = 0
-    step = 0
-    
-    print(f"Initial cash: ${info['cash']:,.2f}")
-    
-    while step < 200:  # Run for 200 steps
-        # Get action from agent
-        action = agent.get_action(obs)
-        obs, reward, done, truncated, info = env.step(action)
-        
-        episode_reward += reward
-        step += 1
-        
-        if step % 50 == 0:
-            print(f"Step {step}: Cash=${info['cash']:,.2f}, P&L=${info['total_pnl']:,.2f}")
-            print(f"  Inventory: {info['inventory']}")
-        
-        if done or truncated:
-            break
-    
-    print(f"Final cash: ${info['cash']:,.2f}")
-    print(f"Final P&L: ${info['total_pnl']:,.2f}")
-    print(f"Episode reward: {episode_reward:.2f}")
-
-def demo_arbitrage_agent():
-    """Demo the arbitrage agent"""
-    print("\n" + "=" * 50)
-    print("Arbitrage Agent Demo")
-    print("=" * 50)
-    
-    # Create environment with multiple symbols for arbitrage
-    env = DeepQuoteEnv(
-        symbols=["AAPL", "GOOGL"],
-        initial_cash=100000.0,
-        max_position_size=1000.0,
-        transaction_cost=0.001
-    )
-    
-    # Create arbitrage agent
-    agent = create_agent("Arbitrage", env, z_score_threshold=2.0, position_size=0.2)
-    
-    print("Running arbitrage agent...")
-    
-    obs, info = env.reset()
-    episode_reward = 0
-    step = 0
-    
-    print(f"Initial cash: ${info['cash']:,.2f}")
-    
-    while step < 200:  # Run for 200 steps
-        # Get action from agent
-        action = agent.get_action(obs)
-        obs, reward, done, truncated, info = env.step(action)
-        
-        episode_reward += reward
-        step += 1
-        
-        if step % 50 == 0:
-            print(f"Step {step}: Cash=${info['cash']:,.2f}, P&L=${info['total_pnl']:,.2f}")
-            print(f"  Inventory: {info['inventory']}")
-        
-        if done or truncated:
-            break
-    
-    print(f"Final cash: ${info['cash']:,.2f}")
-    print(f"Final P&L: ${info['total_pnl']:,.2f}")
-    print(f"Episode reward: {episode_reward:.2f}")
-
-def demo_grid_trading_agent():
-    """Demo the grid trading agent"""
-    print("\n" + "=" * 50)
-    print("Grid Trading Agent Demo")
-    print("=" * 50)
-    
-    # Create environment
-    env = DeepQuoteEnv(
-        symbols=["AAPL"],
-        initial_cash=100000.0,
-        max_position_size=1000.0,
-        transaction_cost=0.001
-    )
-    
-    # Create grid trading agent
-    agent = create_agent("GridTrading", env, grid_levels=5, grid_spacing=0.01, base_position_size=10.0)
-    
-    print("Running grid trading agent...")
-    
-    obs, info = env.reset()
-    episode_reward = 0
-    step = 0
-    
-    print(f"Initial cash: ${info['cash']:,.2f}")
-    
-    while step < 200:  # Run for 200 steps
-        # Get action from agent
-        action = agent.get_action(obs)
-        obs, reward, done, truncated, info = env.step(action)
-        
-        episode_reward += reward
-        step += 1
-        
-        if step % 50 == 0:
-            print(f"Step {step}: Cash=${info['cash']:,.2f}, P&L=${info['total_pnl']:,.2f}")
-            print(f"  Inventory: {info['inventory']}")
-        
-        if done or truncated:
-            break
-    
-    print(f"Final cash: ${info['cash']:,.2f}")
-    print(f"Final P&L: ${info['total_pnl']:,.2f}")
-    print(f"Episode reward: {episode_reward:.2f}")
-
-def demo_volatility_breakout_agent():
-    """Demo the volatility breakout agent"""
-    print("\n" + "=" * 50)
-    print("Volatility Breakout Agent Demo")
-    print("=" * 50)
-    
-    # Create environment
-    env = DeepQuoteEnv(
-        symbols=["AAPL"],
-        initial_cash=100000.0,
-        max_position_size=1000.0,
-        transaction_cost=0.001
-    )
-    
-    # Create volatility breakout agent
-    agent = create_agent("VolatilityBreakout", env, volatility_window=20, breakout_threshold=2.0)
-    
-    print("Running volatility breakout agent...")
-    
-    obs, info = env.reset()
-    episode_reward = 0
-    step = 0
-    
-    print(f"Initial cash: ${info['cash']:,.2f}")
-    
-    while step < 200:  # Run for 200 steps
-        # Get action from agent
-        action = agent.get_action(obs)
-        obs, reward, done, truncated, info = env.step(action)
-        
-        episode_reward += reward
-        step += 1
-        
-        if step % 50 == 0:
-            print(f"Step {step}: Cash=${info['cash']:,.2f}, P&L=${info['total_pnl']:,.2f}")
-            print(f"  Inventory: {info['inventory']}")
-        
-        if done or truncated:
-            break
-    
-    print(f"Final cash: ${info['cash']:,.2f}")
-    print(f"Final P&L: ${info['total_pnl']:,.2f}")
-    print(f"Episode reward: {episode_reward:.2f}")
-
-def demo_pairs_trading_agent():
-    """Demo the pairs trading agent"""
-    print("\n" + "=" * 50)
-    print("Pairs Trading Agent Demo")
-    print("=" * 50)
-    
-    # Create environment with multiple symbols for pairs trading
-    env = DeepQuoteEnv(
-        symbols=["AAPL", "GOOGL"],
-        initial_cash=100000.0,
-        max_position_size=1000.0,
-        transaction_cost=0.001
-    )
-    
-    # Create pairs trading agent
-    agent = create_agent("PairsTrading", env, entry_threshold=2.0, exit_threshold=0.5, position_size=0.2)
-    
-    print("Running pairs trading agent...")
-    
-    obs, info = env.reset()
-    episode_reward = 0
-    step = 0
-    
-    print(f"Initial cash: ${info['cash']:,.2f}")
-    
-    while step < 200:  # Run for 200 steps
-        # Get action from agent
-        action = agent.get_action(obs)
-        obs, reward, done, truncated, info = env.step(action)
-        
-        episode_reward += reward
-        step += 1
-        
-        if step % 50 == 0:
-            print(f"Step {step}: Cash=${info['cash']:,.2f}, P&L=${info['total_pnl']:,.2f}")
-            print(f"  Inventory: {info['inventory']}")
-        
-        if done or truncated:
-            break
-    
-    print(f"Final cash: ${info['cash']:,.2f}")
-    print(f"Final P&L: ${info['total_pnl']:,.2f}")
-    print(f"Episode reward: {episode_reward:.2f}")
-
-def demo_all_agents():
-    """Demo all available agents"""
-    print("\n" + "=" * 50)
-    print("All Agents Comparison Demo")
-    print("=" * 50)
-    
-    # List of all available agents
-    agents = [
-        ("MarketMaking", {"spread_target": 0.001, "order_size": 10.0}),
-        ("MeanReversion", {"lookback_period": 20, "entry_threshold": 2.0}),
-        ("Momentum", {"short_window": 10, "long_window": 30, "momentum_threshold": 0.001}),
-        ("Arbitrage", {"z_score_threshold": 2.0, "position_size": 0.2}),
-        ("GridTrading", {"grid_levels": 5, "grid_spacing": 0.01, "base_position_size": 10.0}),
-        ("VolatilityBreakout", {"volatility_window": 20, "breakout_threshold": 2.0}),
-        ("PairsTrading", {"entry_threshold": 2.0, "exit_threshold": 0.5, "position_size": 0.2})
-    ]
-    
-    results = {}
-    
-    for agent_name, agent_params in agents:
-        print(f"\nTesting {agent_name} agent...")
-        
-        # Create environment
-        env = DeepQuoteEnv(
-            symbols=["AAPL", "GOOGL"] if agent_name in ["Arbitrage", "PairsTrading"] else ["AAPL"],
-            initial_cash=100000.0,
-            max_position_size=1000.0,
-            transaction_cost=0.001
-        )
-        
-        # Create agent
-        agent = create_agent(agent_name, env, **agent_params)
-        
-        # Run episode
-        obs, info = env.reset()
-        episode_reward = 0
-        step = 0
-        
-        while step < 100:  # Run for 100 steps
-            action = agent.get_action(obs)
-            obs, reward, done, truncated, info = env.step(action)
+            # Show current market state
+            for symbol in sim.get_symbols():
+                best_bid = sim.get_best_bid(symbol)
+                best_ask = sim.get_best_ask(symbol)
+                spread = best_ask - best_bid
+                print(f"  {symbol}: Bid=${best_bid:.2f}, Ask=${best_ask:.2f}, Spread=${spread:.2f}")
             
-            episode_reward += reward
-            step += 1
-            
-            if done or truncated:
-                break
+            # Show trader positions
+            print(f"Trader Positions:")
+            for trader_name, _, env in traders:
+                trader = env.trader
+                cash = trader.get_cash()
+                inventory = trader.get_inventory("AAPL")
+                pnl = trader.get_realized_pnl()
+                print(f"  {trader_name:15s}: Cash=${cash:8.2f}, Inv={inventory:6.1f}, PnL=${pnl:6.2f}")
         
-        results[agent_name] = {
-            'final_cash': info['cash'],
-            'total_pnl': info['total_pnl'],
-            'episode_reward': episode_reward
-        }
+        step += 1
+        time.sleep(0.2)  # 5Hz simulation
+    
+    return total_trades, trader_trades
+
+def print_final_results(sim, market_maker, traders, total_trades, trader_trades):
+    """Print comprehensive final results"""
+    print(f"\n" + "=" * 80)
+    print("FINAL RESULTS")
+    print("=" * 80)
+    
+    # Trading activity summary
+    print(f"Trading Activity:")
+    print(f"  Total Trades Executed: {total_trades}")
+    print(f"  Trades by Trader:")
+    for trader_name, trade_count in trader_trades.items():
+        print(f"    {trader_name}: {trade_count} trades")
+    
+    # Trader performance
+    print(f"\nTrader Performance:")
+    print(f"{'Trader':<15} {'Cash':<10} {'Inventory':<10} {'PnL':<10} {'Trades':<8} {'Return':<10}")
+    print("-" * 75)
+    
+    for trader_name, _, env in traders:
+        trader = env.trader
+        cash = trader.get_cash()
+        inventory = trader.get_inventory("AAPL")
+        pnl = trader.get_realized_pnl()
+        trades = trader_trades[trader_name]
+        initial_cash = 100000.0
+        return_pct = ((cash + inventory * sim.get_mid_price("AAPL")) - initial_cash) / initial_cash * 100
         
-        print(f"  Final cash: ${info['cash']:,.2f}")
-        print(f"  Final P&L: ${info['total_pnl']:,.2f}")
-        print(f"  Episode reward: {episode_reward:.2f}")
+        print(f"{trader_name:<15} ${cash:<9.2f} {inventory:<10.1f} ${pnl:<9.2f} {trades:<8} {return_pct:<9.2f}%")
     
-    # Print summary
-    print("\n" + "=" * 50)
-    print("Summary of All Agents")
-    print("=" * 50)
+    # Market maker performance
+    mm_stats = market_maker.get_stats()
+    print(f"\nMarket Maker Performance:")
+    print(f"  Cash: ${mm_stats.cash:.2f}")
+    print(f"  PnL: ${mm_stats.total_pnl:.2f}")
+    print(f"  Active Orders: {mm_stats.active_orders}")
     
-    for agent_name, result in results.items():
-        print(f"{agent_name:20} | Cash: ${result['final_cash']:>10,.2f} | P&L: ${result['total_pnl']:>10,.2f} | Reward: {result['episode_reward']:>8.2f}")
+    # Market statistics
+    print(f"\nMarket Statistics:")
+    print(f"  Total Orders: {sim.get_total_order_count()}")
+    print(f"  Total Trades: {sim.get_total_trade_count()}")
+    print(f"  Active Events: {sim.get_active_event_count()}")
+    
+    # Final market state
+    print(f"\nFinal Market State:")
+    for symbol in sim.get_symbols():
+        best_bid = sim.get_best_bid(symbol)
+        best_ask = sim.get_best_ask(symbol)
+        spread = best_ask - best_bid
+        mid_price = sim.get_mid_price(symbol)
+        print(f"  {symbol}: Bid=${best_bid:.2f}, Ask=${best_ask:.2f}, Mid=${mid_price:.2f}, Spread=${spread:.2f}")
+    
+    # Active market events
+    active_events = sim.get_active_events()
+    if active_events:
+        print(f"\nActive Market Events:")
+        for event in active_events:
+            print(f"  {event.type}: {event.description} (Magnitude: {event.magnitude:.3f})")
+
+def demo_manual_trading():
+    """Demo manual trading to show direct order placement"""
+    print("\n" + "=" * 80)
+    print("MANUAL TRADING DEMO")
+    print("=" * 80)
+    
+    # Setup market
+    sim, market_maker = setup_market()
+    
+    # Register a manual trader
+    sim.register_trader("manual_trader", 50000.0)
+    trader = sim.get_trader("manual_trader")
+    
+    print("Manual trading with direct order placement...")
+    
+    # Place some test orders
+    orders = []
+    
+    # Buy order
+    buy_order = dq.Order()
+    buy_order.id = 1
+    buy_order.side = dq.Side.BUY
+    buy_order.type = dq.OrderType.LIMIT
+    buy_order.price = sim.get_best_ask("AAPL") + 0.01
+    buy_order.quantity = 20.0
+    buy_order.symbol = "AAPL"
+    buy_order.trader_id = "manual_trader"
+    buy_order.strategy_id = "manual"
+    orders.append(buy_order)
+    
+    # Sell order
+    sell_order = dq.Order()
+    sell_order.id = 2
+    sell_order.side = dq.Side.SELL
+    sell_order.type = dq.OrderType.LIMIT
+    sell_order.price = sim.get_best_bid("AAPL") - 0.01
+    sell_order.quantity = 10.0
+    sell_order.symbol = "AAPL"
+    sell_order.trader_id = "manual_trader"
+    sell_order.strategy_id = "manual"
+    orders.append(sell_order)
+    
+    # Execute orders
+    total_trades = 0
+    for i, order in enumerate(orders):
+        print(f"\nPlacing order {i+1}: {order.side} {order.quantity} @ ${order.price:.2f}")
+        
+        trades = sim.process_order(order)
+        print(f"Order resulted in {len(trades)} trades")
+        
+        if trades:
+            for trade in trades:
+                total_trades += 1
+                print(f"  Trade: {trade.quantity} @ ${trade.price:.2f}")
+        
+        print(f"  Trader cash: ${trader.get_cash():.2f}")
+        print(f"  Trader inventory: {trader.get_inventory('AAPL'):.1f}")
+        print(f"  Trader PnL: ${trader.get_realized_pnl():.2f}")
+        
+        time.sleep(0.5)
+    
+    print(f"\nManual Trading Results:")
+    print(f"  Total Trades: {total_trades}")
+    print(f"  Final Cash: ${trader.get_cash():.2f}")
+    print(f"  Final Inventory: {trader.get_inventory('AAPL'):.1f}")
+    print(f"  Final PnL: ${trader.get_realized_pnl():.2f}")
+    
+    market_maker.stop()
 
 def main():
-    """Run all demos"""
+    """Main demo function"""
+    print("DeepQuote Comprehensive Demo")
+    print("=" * 80)
+    print("This demo showcases:")
+    print("✅ C++ Market Maker providing liquidity")
+    print("✅ RL Agents with different strategies (Mean Reversion, Momentum, Market Making)")
+    print("✅ Real market events driving price movements")
+    print("✅ Actual trade execution and position tracking")
+    print("✅ Performance monitoring and analysis")
+    print("✅ Manual trading demonstration")
+    print("=" * 80)
     
-    # Set random seed for reproducibility
-    np.random.seed(42)
-    
-    # Run demos
-    demo_basic_environment()
-    demo_market_making_agent()
-    demo_mean_reversion_agent()
-    demo_price_movement()
-    demo_momentum_agent()
-    demo_arbitrage_agent()
-    demo_grid_trading_agent()
-    demo_volatility_breakout_agent()
-    demo_pairs_trading_agent()
-    demo_all_agents()
-    
-    print("\n" + "=" * 50)
-    print("Demo completed!")
-    print("=" * 50)
-    print("\nNext steps:")
-    print("1. Install dependencies: pip install -r requirements.txt")
-    print("2. Run training: python train.py")
-    print("3. Experiment with different agents and parameters")
+    try:
+        # Part 1: Main trading simulation
+        print("\nPART 1: MAIN TRADING SIMULATION")
+        print("-" * 40)
+        
+        # Setup market and traders
+        sim, market_maker = setup_market()
+        traders = create_traders(sim)
+        
+        # Run simulation
+        total_trades, trader_trades = run_trading_simulation(sim, market_maker, traders, duration_seconds=30)
+        
+        # Print results
+        print_final_results(sim, market_maker, traders, total_trades, trader_trades)
+        
+        # Stop market maker
+        market_maker.stop()
+        
+        # Part 2: Manual trading demo
+        print("\nPART 2: MANUAL TRADING DEMO")
+        print("-" * 40)
+        demo_manual_trading()
+        
+        print("\n" + "=" * 80)
+        print("Demo completed successfully!")
+        print("DeepQuote is working with actual trade execution!")
+        print("=" * 80)
+        
+    except Exception as e:
+        print(f"Demo failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     main() 

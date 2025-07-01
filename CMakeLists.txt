@@ -21,6 +21,8 @@ set(CORE_SOURCES
     src/market/market_simulator.cpp
     src/market/order_book.cpp
     src/market/matching_engine.cpp
+    src/market/market_maker.cpp
+    src/market/market_events.cpp
 )
 
 # Create the core library

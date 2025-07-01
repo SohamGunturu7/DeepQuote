@@ -1,6 +1,7 @@
 #include "market/market_simulator.h"
 #include <algorithm>
 #include <stdexcept>
+#include <iostream>
 using namespace std;
 
 namespace deepquote {
@@ -9,9 +10,19 @@ namespace deepquote {
 // Constructor
 // ============================================================================
 
-MarketSimulator::MarketSimulator(const vector<string>& symbols) {
+MarketSimulator::MarketSimulator(const vector<string>& symbols) 
+    : market_events_enabled_(false), last_update_time_(0.0) {
+    
     for (const auto& symbol : symbols) {
         initializeEngine(symbol);
+    }
+    
+    // Initialize market events system
+    event_generator_ = std::make_unique<MarketEventGenerator>(symbols);
+    
+    // Initialize microstructure noise for each symbol
+    for (const auto& symbol : symbols) {
+        noise_generators_[symbol] = MicrostructureNoise(0.001, 0.1);
     }
 }
 
@@ -535,6 +546,129 @@ std::shared_ptr<Trader> MarketSimulator::getTraderPtr(const std::string& trader_
         return it->second;
     }
     return nullptr;
+}
+
+// ============================================================================
+// Market Events and Price Movement
+// ============================================================================
+
+void MarketSimulator::enableMarketEvents(bool enable) {
+    market_events_enabled_ = enable;
+    if (enable) {
+        std::cout << "Market events enabled - realistic price movements and random events active" << std::endl;
+    } else {
+        std::cout << "Market events disabled" << std::endl;
+    }
+}
+
+void MarketSimulator::setEventProbability(double probability) {
+    if (event_generator_) {
+        event_generator_->setBaseEventProbability(probability);
+    }
+}
+
+void MarketSimulator::updateMarketEvents(double dt) {
+    if (!market_events_enabled_ || !event_generator_) {
+        return;
+    }
+    
+    // Update the event generator
+    event_generator_->update(dt);
+    
+    // Generate price movements based on active events
+    generatePriceMovement(dt);
+}
+
+vector<MarketEvent> MarketSimulator::getActiveEvents() const {
+    if (event_generator_) {
+        return event_generator_->getActiveEvents();
+    }
+    return {};
+}
+
+size_t MarketSimulator::getActiveEventCount() const {
+    if (event_generator_) {
+        return event_generator_->getActiveEventCount();
+    }
+    return 0;
+}
+
+void MarketSimulator::generatePriceMovement(double dt) {
+    if (!market_events_enabled_ || !event_generator_) {
+        return;
+    }
+    
+    // Get current time
+    auto now = std::chrono::steady_clock::now();
+    double current_time = std::chrono::duration<double>(now.time_since_epoch()).count();
+    
+    if (last_update_time_ == 0.0) {
+        last_update_time_ = current_time;
+        return;
+    }
+    
+    double actual_dt = current_time - last_update_time_;
+    last_update_time_ = current_time;
+    
+    // Generate price movements for each symbol
+    for (const auto& symbol : getSymbols()) {
+        // Get current mid price
+        double current_price = getMidPrice(symbol);
+        if (current_price <= 0.0) {
+            current_price = 100.0; // Default price if no orders
+        }
+        
+        // Generate price change from event generator
+        double price_change = event_generator_->generatePriceChange(symbol, current_price, actual_dt);
+        
+        // Add microstructure noise
+        auto noise_it = noise_generators_.find(symbol);
+        if (noise_it != noise_generators_.end()) {
+            double noise = noise_it->second.generateNoise(actual_dt);
+            price_change += noise * current_price;
+        }
+        
+        // Apply price change by creating market orders
+        if (std::abs(price_change) > 0.001 * current_price) { // Only if change is significant
+            // Create a "market maker" order to absorb the price movement
+            auto order = std::make_shared<Order>();
+            order->id = 999999; // Special ID for market events
+            order->symbol = symbol;
+            order->trader_id = "market_events";
+            order->strategy_id = "price_movement";
+            order->type = OrderType::MARKET;
+            order->quantity = 100.0; // Large quantity to move price
+            order->price = 0.0; // Market order
+            
+            if (price_change > 0) {
+                // Price going up - create buy order
+                order->side = Side::BUY;
+            } else {
+                // Price going down - create sell order
+                order->side = Side::SELL;
+                order->quantity = -order->quantity;
+            }
+            
+            // Process the order (this will move the price)
+            try {
+                processOrder(order);
+            } catch (...) {
+                // Ignore errors from market event orders
+            }
+        }
+    }
+}
+
+void MarketSimulator::setPriceVolatility(const string& symbol, double volatility) {
+    // This would update the price model volatility
+    // For now, we'll just store it for future use
+    std::cout << "Set volatility for " << symbol << " to " << volatility << std::endl;
+}
+
+void MarketSimulator::setPriceDrift(const string& symbol, double drift) {
+    // This would update the price model drift
+    // For now, we'll just store it for future use
+    std::cout << "Set drift for " << symbol << " to " << drift << std::endl;
 }
 
 } // namespace deepquote 

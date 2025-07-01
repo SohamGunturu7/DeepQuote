@@ -6,7 +6,9 @@
 #include "core/order.h"
 #include "market/trader.h"
 #include "market/rl_trader.h"
+#include "market/market_maker.h"
 #include "market/market_simulator.h"
+#include "market/market_events.h"
 #include "market/order_book.h"
 
 namespace py = pybind11;
@@ -241,6 +243,16 @@ PYBIND11_MODULE(deepquote_simulator, m) {
         .def("reset_all_rl_episodes", &MarketSimulator::resetAllRLEpisodes)
         .def("add_reward_to_rl_trader", &MarketSimulator::addRewardToRLTrader)
         
+        // Market events and price movement
+        .def("enable_market_events", &MarketSimulator::enableMarketEvents)
+        .def("set_event_probability", &MarketSimulator::setEventProbability)
+        .def("update_market_events", &MarketSimulator::updateMarketEvents)
+        .def("get_active_events", &MarketSimulator::getActiveEvents)
+        .def("get_active_event_count", &MarketSimulator::getActiveEventCount)
+        .def("generate_price_movement", &MarketSimulator::generatePriceMovement)
+        .def("set_price_volatility", &MarketSimulator::setPriceVolatility)
+        .def("set_price_drift", &MarketSimulator::setPriceDrift)
+        
         // Market utilities
         .def("get_mark_prices", &MarketSimulator::getMarkPrices)
         .def("update_mark_prices", &MarketSimulator::updateMarkPrices)
@@ -252,6 +264,79 @@ PYBIND11_MODULE(deepquote_simulator, m) {
         .def("reset", &MarketSimulator::reset)
         .def("reset_traders", &MarketSimulator::resetTraders)
         .def("reset_rl_traders", &MarketSimulator::resetRLTraders);
+    
+    // ============================================================================
+    // MarketMakerConfig Structure
+    // ============================================================================
+    
+    py::class_<MarketMakerConfig>(m, "MarketMakerConfig")
+        .def(py::init<>())
+        .def_readwrite("trader_id", &MarketMakerConfig::trader_id)
+        .def_readwrite("symbols", &MarketMakerConfig::symbols)
+        .def_readwrite("base_price", &MarketMakerConfig::base_price)
+        .def_readwrite("spread_pct", &MarketMakerConfig::spread_pct)
+        .def_readwrite("order_size", &MarketMakerConfig::order_size)
+        .def_readwrite("max_orders_per_side", &MarketMakerConfig::max_orders_per_side)
+        .def_readwrite("update_interval_ms", &MarketMakerConfig::update_interval_ms)
+        .def_readwrite("adaptive_spread", &MarketMakerConfig::adaptive_spread)
+        .def_readwrite("min_spread_pct", &MarketMakerConfig::min_spread_pct)
+        .def_readwrite("max_spread_pct", &MarketMakerConfig::max_spread_pct)
+        .def_readwrite("volatility_window", &MarketMakerConfig::volatility_window);
+    
+    // ============================================================================
+    // MarketMakerStats Structure
+    // ============================================================================
+    
+    py::class_<MarketMaker::Stats>(m, "MarketMakerStats")
+        .def(py::init<>())
+        .def_readwrite("trader_id", &MarketMaker::Stats::trader_id)
+        .def_readwrite("cash", &MarketMaker::Stats::cash)
+        .def_readwrite("total_pnl", &MarketMaker::Stats::total_pnl)
+        .def_readwrite("active_orders", &MarketMaker::Stats::active_orders)
+        .def_readwrite("running", &MarketMaker::Stats::running);
+    
+    // ============================================================================
+    // MarketMaker Class
+    // ============================================================================
+    
+    py::class_<MarketMaker>(m, "MarketMaker")
+        .def(py::init<MarketSimulator*, const MarketMakerConfig&>(),
+             py::arg("simulator"), py::arg("config"))
+        .def("start", &MarketMaker::start)
+        .def("stop", &MarketMaker::stop)
+        .def("is_running", &MarketMaker::isRunning)
+        .def("set_spread", &MarketMaker::setSpread)
+        .def("set_order_size", &MarketMaker::setOrderSize)
+        .def("set_update_interval", &MarketMaker::setUpdateInterval)
+        .def("get_stats", &MarketMaker::getStats);
+    
+    // ============================================================================
+    // Market Events
+    // ============================================================================
+    
+    py::enum_<EventType>(m, "EventType")
+        .value("PRICE_SHOCK", EventType::PRICE_SHOCK)
+        .value("VOLATILITY_SPIKE", EventType::VOLATILITY_SPIKE)
+        .value("LIQUIDITY_CRISIS", EventType::LIQUIDITY_CRISIS)
+        .value("NEWS_EVENT", EventType::NEWS_EVENT)
+        .value("MARKET_CRASH", EventType::MARKET_CRASH)
+        .value("FLASH_CRASH", EventType::FLASH_CRASH)
+        .value("PUMP_AND_DUMP", EventType::PUMP_AND_DUMP)
+        .value("EARNINGS_ANNOUNCEMENT", EventType::EARNINGS_ANNOUNCEMENT)
+        .value("FED_ANNOUNCEMENT", EventType::FED_ANNOUNCEMENT)
+        .value("TECHNICAL_BREAKOUT", EventType::TECHNICAL_BREAKOUT)
+        .value("CORRELATION_BREAKDOWN", EventType::CORRELATION_BREAKDOWN)
+        .value("MICROSTRUCTURE_NOISE", EventType::MICROSTRUCTURE_NOISE)
+        .export_values();
+    
+    py::class_<MarketEvent>(m, "MarketEvent")
+        .def(py::init<EventType, const std::string&, double, double, const std::string&>())
+        .def_readwrite("type", &MarketEvent::type)
+        .def_readwrite("symbol", &MarketEvent::symbol)
+        .def_readwrite("magnitude", &MarketEvent::magnitude)
+        .def_readwrite("duration", &MarketEvent::duration)
+        .def_readwrite("description", &MarketEvent::description)
+        .def_readwrite("is_active", &MarketEvent::is_active);
     
     // ============================================================================
     // Utility Functions

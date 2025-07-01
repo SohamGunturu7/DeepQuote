@@ -24,6 +24,8 @@ ext_modules = [
             "src/market/market_simulator.cpp",
             "src/market/order_book.cpp",
             "src/market/matching_engine.cpp",
+            "src/market/market_maker.cpp",
+            "src/market/market_events.cpp",
         ],
         include_dirs=["include"],
         language="c++",
