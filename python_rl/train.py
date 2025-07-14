@@ -1,8 +1,5 @@
 """
 DeepQuote RL Training Script
-
-This script demonstrates how to train reinforcement learning agents
-on the DeepQuote trading environment.
 """
 
 import numpy as np
@@ -20,8 +17,8 @@ from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 import wandb
 
+# Custom training callback
 class TrainingCallback:
-    """Custom callback for tracking training progress"""
     
     def __init__(self, log_interval: int = 100):
         self.log_interval = log_interval
@@ -31,7 +28,6 @@ class TrainingCallback:
         self.current_episode_length = 0
         
     def on_step(self, locals: Dict, globals: Dict) -> bool:
-        """Called after each step"""
         self.current_episode_reward += locals['rewards'][0]
         self.current_episode_length += 1
         
@@ -41,7 +37,6 @@ class TrainingCallback:
             self.current_episode_reward = 0
             self.current_episode_length = 0
             
-            # Log to wandb
             if len(self.episode_rewards) % self.log_interval == 0:
                 avg_reward = np.mean(self.episode_rewards[-self.log_interval:])
                 avg_length = np.mean(self.episode_lengths[-self.log_interval:])
@@ -53,6 +48,7 @@ class TrainingCallback:
         
         return True
 
+# Main training function
 def train_agent(agent_type: str = "PPO",
                 symbols: List[str] = ["AAPL", "GOOGL"],
                 initial_cash: float = 100000.0,
@@ -61,27 +57,9 @@ def train_agent(agent_type: str = "PPO",
                 learning_rate: float = 3e-4,
                 use_wandb: bool = True,
                 save_path: str = "models") -> Dict[str, Any]:
-    """
-    Train a reinforcement learning agent on the DeepQuote environment
     
-    Args:
-        agent_type: Type of agent to train ("PPO", "SAC", "TD3", "MarketMaking", "MeanReversion")
-        symbols: List of trading symbols
-        initial_cash: Initial cash for the agent
-        max_steps: Maximum steps per episode
-        total_timesteps: Total timesteps for training
-        learning_rate: Learning rate for the agent
-        use_wandb: Whether to use Weights & Biases for logging
-        save_path: Path to save trained models
-    
-    Returns:
-        Dictionary containing training results
-    """
-    
-    # Create output directory
     os.makedirs(save_path, exist_ok=True)
     
-    # Initialize wandb
     if use_wandb:
         wandb.init(
             project="deepquote-rl",
@@ -96,7 +74,6 @@ def train_agent(agent_type: str = "PPO",
             }
         )
     
-    # Create environment
     env = DeepQuoteEnv(
         symbols=symbols,
         initial_cash=initial_cash,
@@ -104,16 +81,13 @@ def train_agent(agent_type: str = "PPO",
         transaction_cost=0.001
     )
     
-    # Wrap with Monitor for logging
     env = Monitor(env)
     
     print(f"Training {agent_type} agent on {symbols}")
     print(f"Observation space: {env.observation_space}")
     print(f"Action space: {env.action_space}")
     
-    # Create agent
     if agent_type in ["PPO", "SAC", "TD3", "A2C"]:
-        # Use Stable Baselines3
         agent = StableBaselinesAgent(
             env=env,
             agent_type=agent_type,
@@ -121,7 +95,6 @@ def train_agent(agent_type: str = "PPO",
             tensorboard_log=f"{save_path}/tensorboard_logs"
         )
         
-        # Create callbacks
         eval_env = DeepQuoteEnv(symbols=symbols, initial_cash=initial_cash)
         eval_env = Monitor(eval_env)
         
@@ -140,7 +113,6 @@ def train_agent(agent_type: str = "PPO",
             name_prefix=f"{agent_type}_model"
         )
         
-        # Train the agent
         start_time = time.time()
         agent.train(
             total_timesteps=total_timesteps,
@@ -148,15 +120,12 @@ def train_agent(agent_type: str = "PPO",
         )
         training_time = time.time() - start_time
         
-        # Save final model
         final_model_path = f"{save_path}/{agent_type}_final"
         agent.save(final_model_path)
         
     else:
-        # Use custom agents (MarketMaking, MeanReversion)
         agent = create_agent(agent_type, env)
         
-        # For custom agents, we'll just run some episodes to test
         print(f"Testing {agent_type} agent...")
         
         episode_rewards = []
@@ -183,13 +152,11 @@ def train_agent(agent_type: str = "PPO",
             if episode % 5 == 0:
                 print(f"Episode {episode}: Reward = {episode_reward:.2f}, Length = {episode_length}")
         
-        training_time = 0  # No training for rule-based agents
+        training_time = 0
     
-    # Evaluate the trained agent
     print("Evaluating agent...")
     eval_results = evaluate_agent(agent, env, n_episodes=10)
     
-    # Save results
     results = {
         "agent_type": agent_type,
         "symbols": symbols,
@@ -203,342 +170,195 @@ def train_agent(agent_type: str = "PPO",
     with open(f"{save_path}/training_results.json", "w") as f:
         json.dump(results, f, indent=2)
     
-    # Log final results to wandb
     if use_wandb:
-        wandb.log({
-            "final_avg_reward": eval_results["avg_reward"],
-            "final_avg_pnl": eval_results["avg_pnl"],
-            "training_time": training_time
-        })
         wandb.finish()
-    
-    print(f"Training completed!")
-    print(f"Average reward: {eval_results['avg_reward']:.2f}")
-    print(f"Average P&L: ${eval_results['avg_pnl']:.2f}")
-    print(f"Training time: {training_time:.2f}s")
     
     return results
 
+# Agent evaluation function
 def evaluate_agent(agent, env: DeepQuoteEnv, n_episodes: int = 10) -> Dict[str, float]:
-    """Evaluate a trained agent"""
-    
     episode_rewards = []
-    episode_pnls = []
     episode_lengths = []
+    final_pnls = []
+    max_drawdowns = []
     
     for episode in range(n_episodes):
         obs, info = env.reset()
         episode_reward = 0
         episode_length = 0
+        episode_pnls = []
         
-        for step in range(env.max_steps):
+        for step in range(1000):
             action = agent.get_action(obs)
             obs, reward, done, truncated, info = env.step(action)
             
             episode_reward += reward
             episode_length += 1
+            episode_pnls.append(info['total_pnl'])
             
             if done or truncated:
                 break
         
         episode_rewards.append(episode_reward)
-        episode_pnls.append(info['total_pnl'])
         episode_lengths.append(episode_length)
+        final_pnls.append(info['total_pnl'])
+        
+        if episode_pnls:
+            peak = max(episode_pnls)
+            final = episode_pnls[-1]
+            drawdown = (peak - final) / peak if peak > 0 else 0
+            max_drawdowns.append(drawdown)
     
     return {
-        "avg_reward": np.mean(episode_rewards),
+        "mean_reward": np.mean(episode_rewards),
         "std_reward": np.std(episode_rewards),
-        "avg_pnl": np.mean(episode_pnls),
-        "std_pnl": np.std(episode_pnls),
-        "avg_length": np.mean(episode_lengths),
-        "episode_rewards": episode_rewards,
-        "episode_pnls": episode_pnls
+        "mean_length": np.mean(episode_lengths),
+        "mean_final_pnl": np.mean(final_pnls),
+        "std_final_pnl": np.std(final_pnls),
+        "mean_max_drawdown": np.mean(max_drawdowns),
+        "win_rate": np.mean([1 if pnl > 0 else 0 for pnl in final_pnls])
     }
 
+# Agent comparison function
 def compare_agents(agent_types: List[str] = ["PPO", "SAC", "MarketMaking", "MeanReversion"],
                   symbols: List[str] = ["AAPL", "GOOGL"],
                   initial_cash: float = 100000.0,
                   total_timesteps: int = 50000,
                   save_path: str = "comparison_results") -> Dict[str, Any]:
-    """
-    Compare multiple agents on the same environment
     
-    Args:
-        agent_types: List of agent types to compare
-        symbols: List of trading symbols
-        initial_cash: Initial cash for agents
-        total_timesteps: Total timesteps for training (for RL agents)
-        save_path: Path to save comparison results
-    
-    Returns:
-        Dictionary containing comparison results
-    """
-    
-    # Create output directory
     os.makedirs(save_path, exist_ok=True)
-    
-    # Initialize wandb
-    wandb.init(
-        project="deepquote-agent-comparison",
-        name=f"comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-        config={
-            "agent_types": agent_types,
-            "symbols": symbols,
-            "initial_cash": initial_cash,
-            "total_timesteps": total_timesteps
-        }
-    )
     
     results = {}
     
-    # Define agent configurations
-    agent_configs = {
-        "MarketMaking": {"spread_target": 0.001, "order_size": 10.0},
-        "MeanReversion": {"lookback_period": 20, "entry_threshold": 2.0, "exit_threshold": 0.5},
-        "Momentum": {"short_window": 10, "long_window": 30, "momentum_threshold": 0.001, "position_size": 0.3},
-        "Arbitrage": {"z_score_threshold": 2.0, "position_size": 0.2},
-        "GridTrading": {"grid_levels": 5, "grid_spacing": 0.01, "base_position_size": 10.0},
-        "VolatilityBreakout": {"volatility_window": 20, "breakout_threshold": 2.0, "position_size": 0.3},
-        "PairsTrading": {"entry_threshold": 2.0, "exit_threshold": 0.5, "position_size": 0.2}
-    }
-    
     for agent_type in agent_types:
-        print(f"\nTraining/Testing {agent_type} agent...")
+        print(f"\nTraining {agent_type} agent...")
         
-        # Determine symbols for this agent
-        if agent_type in ["Arbitrage", "PairsTrading"]:
-            agent_symbols = symbols if len(symbols) >= 2 else ["AAPL", "GOOGL"]
-        else:
-            agent_symbols = symbols[:1] if symbols else ["AAPL"]
+        agent_save_path = f"{save_path}/{agent_type}"
+        os.makedirs(agent_save_path, exist_ok=True)
         
-        # Create environment
-        env = DeepQuoteEnv(
-            symbols=agent_symbols,
-            initial_cash=initial_cash,
-            max_position_size=1000.0,
-            transaction_cost=0.001
-        )
-        
-        # Wrap with Monitor for logging
-        env = Monitor(env)
-        
-        # Get agent configuration
-        config = agent_configs.get(agent_type, {})
-        
-        # Train/test agent
-        if agent_type in ["PPO", "SAC", "TD3", "A2C"]:
-            # RL agents - train them
-            result = train_agent(
+        try:
+            agent_results = train_agent(
                 agent_type=agent_type,
-                symbols=agent_symbols,
+                symbols=symbols,
                 initial_cash=initial_cash,
                 total_timesteps=total_timesteps,
-                use_wandb=False  # Already initialized
+                use_wandb=False,
+                save_path=agent_save_path
             )
-        else:
-            # Rule-based agents - test them
-            agent = create_agent(agent_type, env, **config)
             
-            # Run multiple episodes for evaluation
-            episode_rewards = []
-            episode_pnls = []
-            episode_lengths = []
+            results[agent_type] = agent_results
             
-            for episode in range(10):
-                obs, info = env.reset()
-                episode_reward = 0
-                episode_length = 0
-                
-                for step in range(1000):  # Max 1000 steps per episode
-                    action = agent.get_action(obs)
-                    obs, reward, done, truncated, info = env.step(action)
-                    
-                    episode_reward += reward
-                    episode_length += 1
-                    
-                    if done or truncated:
-                        break
-                
-                episode_rewards.append(episode_reward)
-                episode_pnls.append(info['total_pnl'])
-                episode_lengths.append(episode_length)
-            
-            # Calculate evaluation metrics
-            eval_results = {
-                'episode_reward_mean': np.mean(episode_rewards),
-                'episode_reward_std': np.std(episode_rewards),
-                'total_pnl_mean': np.mean(episode_pnls),
-                'total_pnl_std': np.std(episode_pnls),
-                'episode_length_mean': np.mean(episode_lengths),
-                'win_rate': np.mean([1 if pnl > 0 else 0 for pnl in episode_pnls]),
-                'max_drawdown': min(episode_pnls) if episode_pnls else 0,
-                'sharpe_ratio': np.mean(episode_pnls) / np.std(episode_pnls) if np.std(episode_pnls) > 0 else 0
-            }
-            
-            result = {
-                "agent_type": agent_type,
-                "symbols": agent_symbols,
-                "initial_cash": initial_cash,
-                "training_time": 0,  # No training for rule-based agents
-                "total_timesteps": len(episode_rewards) * np.mean(episode_lengths),
-                "evaluation_results": eval_results,
-                "model_path": None
-            }
-        
-        results[agent_type] = result
-        
-        # Log to wandb
-        wandb.log({
-            f"{agent_type}_episode_reward": result["evaluation_results"]["episode_reward_mean"],
-            f"{agent_type}_total_pnl": result["evaluation_results"]["total_pnl_mean"],
-            f"{agent_type}_win_rate": result["evaluation_results"]["win_rate"],
-            f"{agent_type}_sharpe_ratio": result["evaluation_results"]["sharpe_ratio"]
-        })
-        
-        print(f"  Episode reward: {result['evaluation_results']['episode_reward_mean']:.2f} ± {result['evaluation_results']['episode_reward_std']:.2f}")
-        print(f"  Total P&L: ${result['evaluation_results']['total_pnl_mean']:,.2f} ± ${result['evaluation_results']['total_pnl_std']:,.2f}")
-        print(f"  Win rate: {result['evaluation_results']['win_rate']:.2%}")
-        print(f"  Sharpe ratio: {result['evaluation_results']['sharpe_ratio']:.3f}")
+        except Exception as e:
+            print(f"Error training {agent_type}: {e}")
+            results[agent_type] = {"error": str(e)}
     
-    # Save results
-    with open(f"{save_path}/comparison_results.json", "w") as f:
-        json.dump(results, f, indent=2, default=str)
+    comparison_summary = {
+        "agent_types": agent_types,
+        "symbols": symbols,
+        "initial_cash": initial_cash,
+        "total_timesteps": total_timesteps,
+        "results": results
+    }
     
-    # Create comparison plots
-    create_comparison_plots(results, save_path)
+    with open(f"{save_path}/comparison_summary.json", "w") as f:
+        json.dump(comparison_summary, f, indent=2)
     
-    # Close wandb
-    wandb.finish()
+    create_comparison_plots(comparison_summary, save_path)
     
-    return results
+    return comparison_summary
 
+# Plotting function
 def create_comparison_plots(results: Dict[str, Any], save_path: str):
-    """Create comparison plots for different agents"""
+    agent_types = results["agent_types"]
+    agent_results = results["results"]
     
-    # Extract data for plotting
-    agent_names = []
-    avg_rewards = []
-    avg_pnls = []
-    training_times = []
+    metrics = ["mean_reward", "mean_final_pnl", "win_rate", "mean_max_drawdown"]
+    metric_names = ["Mean Reward", "Mean Final PnL", "Win Rate", "Mean Max Drawdown"]
     
-    for agent_type, result in results.items():
-        if "error" not in result:
-            agent_names.append(agent_type)
-            avg_rewards.append(result["evaluation_results"]["episode_reward_mean"])
-            avg_pnls.append(result["evaluation_results"]["total_pnl_mean"])
-            training_times.append(result["training_time"])
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    axes = axes.flatten()
     
-    # Create plots
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    
-    # Average rewards
-    axes[0].bar(agent_names, avg_rewards)
-    axes[0].set_title("Average Episode Reward")
-    axes[0].set_ylabel("Reward")
-    axes[0].tick_params(axis='x', rotation=45)
-    
-    # Average P&L
-    axes[1].bar(agent_names, avg_pnls)
-    axes[1].set_title("Average P&L")
-    axes[1].set_ylabel("P&L ($)")
-    axes[1].tick_params(axis='x', rotation=45)
-    
-    # Training time
-    axes[2].bar(agent_names, training_times)
-    axes[2].set_title("Training Time")
-    axes[2].set_ylabel("Time (s)")
-    axes[2].tick_params(axis='x', rotation=45)
+    for i, (metric, metric_name) in enumerate(zip(metrics, metric_names)):
+        values = []
+        labels = []
+        
+        for agent_type in agent_types:
+            if agent_type in agent_results and "evaluation_results" in agent_results[agent_type]:
+                eval_results = agent_results[agent_type]["evaluation_results"]
+                if metric in eval_results:
+                    values.append(eval_results[metric])
+                    labels.append(agent_type)
+        
+        if values:
+            bars = axes[i].bar(labels, values)
+            axes[i].set_title(metric_name)
+            axes[i].set_ylabel(metric_name)
+            
+            for bar, value in zip(bars, values):
+                axes[i].text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                           f'{value:.3f}', ha='center', va='bottom')
     
     plt.tight_layout()
     plt.savefig(f"{save_path}/agent_comparison.png", dpi=300, bbox_inches='tight')
-    plt.show()
-
-def main():
-    """Main function to run training and comparison"""
+    plt.close()
     
-    print("DeepQuote RL Training and Comparison")
+    training_times = []
+    labels = []
+    
+    for agent_type in agent_types:
+        if agent_type in agent_results and "training_time" in agent_results[agent_type]:
+            training_times.append(agent_results[agent_type]["training_time"])
+            labels.append(agent_type)
+    
+    if training_times:
+        plt.figure(figsize=(10, 6))
+        bars = plt.bar(labels, training_times)
+        plt.title("Training Time Comparison")
+        plt.ylabel("Training Time (seconds)")
+        
+        for bar, time_val in zip(bars, training_times):
+            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                    f'{time_val:.1f}s', ha='center', va='bottom')
+        
+        plt.tight_layout()
+        plt.savefig(f"{save_path}/training_time_comparison.png", dpi=300, bbox_inches='tight')
+        plt.close()
+
+# Main execution
+def main():
+    print("DeepQuote RL Training")
     print("=" * 50)
     
-    # Example 1: Train a single PPO agent
-    print("\n1. Training a PPO agent...")
-    try:
-        results = train_agent(
-            agent_type="PPO",
-            symbols=["AAPL", "GOOGL"],
-            initial_cash=100000.0,
-            total_timesteps=10000,  # Reduced for demo
-            learning_rate=3e-4,
-            use_wandb=False  # Disable for demo
-        )
-        print(f"Training completed! Final P&L: ${results['evaluation_results']['total_pnl_mean']:,.2f}")
-    except Exception as e:
-        print(f"Training failed: {e}")
+    symbols = ["AAPL", "GOOGL"]
+    initial_cash = 100000.0
+    total_timesteps = 50000
     
-    # Example 2: Compare multiple agents
-    print("\n2. Comparing multiple agents...")
-    try:
-        comparison_results = compare_agents(
-            agent_types=[
-                "MarketMaking", 
-                "MeanReversion", 
-                "Momentum", 
-                "Arbitrage", 
-                "GridTrading", 
-                "VolatilityBreakout", 
-                "PairsTrading"
-            ],
-            symbols=["AAPL", "GOOGL"],
-            initial_cash=100000.0,
-            total_timesteps=5000,  # Reduced for demo
-            save_path="demo_comparison"
-        )
-        
-        print("\nComparison Results Summary:")
-        print("-" * 80)
-        print(f"{'Agent':<20} {'Reward':<10} {'P&L':<15} {'Win Rate':<10} {'Sharpe':<8}")
-        print("-" * 80)
-        
-        for agent_type, result in comparison_results.items():
-            if "error" not in result:
-                eval_results = result["evaluation_results"]
-                print(f"{agent_type:<20} {eval_results['episode_reward_mean']:<10.2f} "
-                      f"${eval_results['total_pnl_mean']:<14,.2f} "
-                      f"{eval_results['win_rate']:<10.1%} "
-                      f"{eval_results['sharpe_ratio']:<8.3f}")
-        
-    except Exception as e:
-        print(f"Comparison failed: {e}")
+    agent_types = ["PPO", "SAC", "MarketMaking", "MeanReversion"]
     
-    # Example 3: Train RL agents
-    print("\n3. Training RL agents...")
-    try:
-        rl_results = compare_agents(
-            agent_types=["PPO", "SAC"],
-            symbols=["AAPL"],
-            initial_cash=100000.0,
-            total_timesteps=10000,  # Reduced for demo
-            save_path="rl_comparison"
-        )
-        
-        print("\nRL Agents Results Summary:")
-        print("-" * 80)
-        print(f"{'Agent':<20} {'Reward':<10} {'P&L':<15} {'Win Rate':<10} {'Sharpe':<8}")
-        print("-" * 80)
-        
-        for agent_type, result in rl_results.items():
-            if "error" not in result:
-                eval_results = result["evaluation_results"]
-                print(f"{agent_type:<20} {eval_results['episode_reward_mean']:<10.2f} "
-                      f"${eval_results['total_pnl_mean']:<14,.2f} "
-                      f"{eval_results['win_rate']:<10.1%} "
-                      f"{eval_results['sharpe_ratio']:<8.3f}")
-        
-    except Exception as e:
-        print(f"RL training failed: {e}")
+    print(f"Training agents: {agent_types}")
+    print(f"Symbols: {symbols}")
+    print(f"Initial cash: ${initial_cash:,.2f}")
+    print(f"Total timesteps: {total_timesteps:,}")
     
-    print("\n" + "=" * 50)
-    print("Training and comparison completed!")
-    print("Check the generated directories for detailed results and plots.")
+    results = compare_agents(
+        agent_types=agent_types,
+        symbols=symbols,
+        initial_cash=initial_cash,
+        total_timesteps=total_timesteps,
+        save_path="training_results"
+    )
+    
+    print("\nTraining completed!")
+    print("Results saved to training_results/")
+    
+    for agent_type, agent_results in results["results"].items():
+        if "evaluation_results" in agent_results:
+            eval_results = agent_results["evaluation_results"]
+            print(f"\n{agent_type}:")
+            print(f"  Mean Reward: {eval_results['mean_reward']:.2f}")
+            print(f"  Mean Final PnL: ${eval_results['mean_final_pnl']:.2f}")
+            print(f"  Win Rate: {eval_results['win_rate']:.2%}")
+            print(f"  Training Time: {agent_results['training_time']:.1f}s")
 
 if __name__ == "__main__":
     main() 

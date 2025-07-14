@@ -8,17 +8,11 @@ using namespace std;
 
 namespace deepquote {
 
-// ============================================================================
-// Forward Declarations
-// ============================================================================
-
+// Forward declarations
 class Order;
 class Trade;
 
-// ============================================================================
-// Order Structure
-// ============================================================================
-
+// Order structure
 class Order {
 public:
     OrderId id;
@@ -33,7 +27,6 @@ public:
     string symbol;
     string trader_id;
     
-    // Market making specific fields
     bool is_market_maker_order = false;
     string strategy_id;
     
@@ -43,7 +36,6 @@ public:
           Quantity quantity, const string& symbol, 
           const string& trader_id);
     
-    // Utility methods
     bool isValid() const;
     bool isFullyFilled() const;
     bool isPartiallyFilled() const;
@@ -51,14 +43,10 @@ public:
     Quantity getRemainingQuantity() const;
     double getFillRatio() const;
     
-    // String representation
     string toString() const;
 };
 
-// ============================================================================
-// Trade Structure
-// ============================================================================
-
+// Trade structure
 class Trade {
 public:
     OrderId buy_order_id;
@@ -68,7 +56,6 @@ public:
     Timestamp timestamp;
     string symbol;
     
-    // Market making specific fields
     bool involves_market_maker = false;
     string market_maker_id;
     
@@ -77,15 +64,11 @@ public:
     Trade(OrderId buy_id, OrderId sell_id, Price price, 
           Quantity quantity, const string& symbol);
     
-    // Utility methods
     bool isValid() const;
     string toString() const;
 };
 
-// ============================================================================
-// Order Book Level
-// ============================================================================
-
+// Order book level
 class OrderBookLevel {
 public:
     Price price;
@@ -99,10 +82,7 @@ public:
     string toString() const;
 };
 
-// ============================================================================
-// Order Book Snapshot
-// ============================================================================
-
+// Order book snapshot
 class OrderBookSnapshot {
 public:
     string symbol;
@@ -110,7 +90,6 @@ public:
     vector<OrderBookLevel> bids;
     vector<OrderBookLevel> asks;
     
-    // Market making specific fields
     Price mid_price;
     Price spread;
     Quantity bid_depth;
@@ -119,42 +98,33 @@ public:
     OrderBookSnapshot() = default;
     OrderBookSnapshot(const string& symbol, Timestamp timestamp);
     
-    // Utility methods
     bool isValid() const;
     Price getBestPrice(Side side) const;
     Price getMidPrice() const;
     Price getSpread() const;
     Quantity getDepth(Side side) const;
     
-    // String representation
     string toString() const;
 };
 
-// ============================================================================
-// Order Management
-// ============================================================================
-
+// Order management
 class OrderManager {
 public:
     OrderManager() = default;
     virtual ~OrderManager() = default;
     
-    // Order lifecycle
     virtual OrderId createOrder(const Order& order);
     virtual bool cancelOrder(OrderId order_id);
     virtual bool modifyOrder(OrderId order_id, Price new_price, Quantity new_quantity);
     
-    // Order queries
     virtual shared_ptr<Order> getOrder(OrderId order_id) const;
     virtual vector<shared_ptr<Order>> getActiveOrders() const;
     virtual vector<shared_ptr<Order>> getOrdersBySymbol(const string& symbol) const;
     
-    // Trade handling
     virtual void processTrade(const Trade& trade);
     virtual vector<Trade> getTrades() const;
     
 protected:
-    // Helper methods to reduce code duplication
     shared_ptr<Order> findOrderById(OrderId id) const;
     vector<shared_ptr<Order>> findOrdersBySymbol(const string& symbol) const;
     

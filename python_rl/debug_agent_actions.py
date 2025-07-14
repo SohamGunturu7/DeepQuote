@@ -7,18 +7,16 @@ import numpy as np
 from agents import MarketMakingAgent, MeanReversionAgent, MomentumAgent
 from deepquote_env import DeepQuoteEnv
 
+# Debug what actions agents are generating
 def debug_agent_actions():
-    """Debug what actions agents are generating"""
     print("Debugging agent actions...")
     
-    # Create environment
     env = DeepQuoteEnv(symbols=["AAPL"], trader_id="debug_agent", strategy_type="DQN")
     obs = env.reset()
     
     print(f"Initial observation shape: {obs.shape}")
     print(f"Initial observation: {obs}")
     
-    # Test each agent
     agents = [
         ("MarketMaking", MarketMakingAgent(env)),
         ("MeanReversion", MeanReversionAgent(env)),
@@ -31,13 +29,11 @@ def debug_agent_actions():
         print(f"{'='*50}")
         
         try:
-            # Get agent action
             action = agent.get_action(obs)
             print(f"Agent action: {action}")
             print(f"Action shape: {action.shape}")
             print(f"Action type: {type(action)}")
             
-            # Check if action has valid values
             if len(action) >= 4:
                 action_type = int(action[0])
                 symbol_idx = int(action[1])
@@ -50,13 +46,12 @@ def debug_agent_actions():
                 print(f"  - Quantity: {quantity}")
                 print(f"  - Price: {price}")
                 
-                # Check for potential issues
                 issues = []
                 if quantity <= 0:
                     issues.append(f"Invalid quantity: {quantity}")
                 if price <= 0:
                     issues.append(f"Invalid price: {price}")
-                if action_type not in [0, 1, 5]:  # BUY, SELL, HOLD
+                if action_type not in [0, 1, 5]:
                     issues.append(f"Unknown action type: {action_type}")
                 
                 if issues:
@@ -64,7 +59,6 @@ def debug_agent_actions():
                 else:
                     print("✅ Action looks valid")
                     
-                    # Try to process the action
                     try:
                         obs, reward, done, info = env.step(action)
                         print(f"✅ Step successful! Reward: {reward}, Done: {done}")

@@ -8,19 +8,13 @@ using namespace std;
 
 namespace deepquote {
 
-// ============================================================================
-// Basic Types
-// ============================================================================
-
+// Basic types
 using OrderId = uint64_t;
 using Price = double;
 using Quantity = double;
 using Timestamp = chrono::microseconds;
 
-// ============================================================================
 // Enums
-// ============================================================================
-
 enum class Side : uint8_t {
     BUY = 0,
     SELL = 1
@@ -40,18 +34,12 @@ enum class OrderStatus : uint8_t {
     REJECTED = 4
 };
 
-// ============================================================================
 // Constants
-// ============================================================================
-
 constexpr Price PRICE_EPSILON = 1e-8;
 constexpr Quantity QUANTITY_EPSILON = 1e-8;
 constexpr OrderId INVALID_ORDER_ID = numeric_limits<OrderId>::max();
 
-// ============================================================================
-// Utility Functions
-// ============================================================================
-
+// Utility functions
 inline bool isValidPrice(Price price) {
     return price > PRICE_EPSILON && isfinite(price);
 }
@@ -64,20 +52,14 @@ inline bool isValidOrderId(OrderId id) {
     return id != INVALID_ORDER_ID;
 }
 
-// ============================================================================
-// Consolidated String Conversions
-// ============================================================================
-
+// String conversions
 template<typename T>
 string enumToString(T value);
 
 template<typename T>
 T stringToEnum(const string& str);
 
-// ============================================================================
-// Time Utilities
-// ============================================================================
-
+// Time utilities
 Timestamp getCurrentTimestamp();
 string timestampToString(Timestamp ts);
 Timestamp stringToTimestamp(const string& str);

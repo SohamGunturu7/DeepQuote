@@ -7,10 +7,7 @@ using namespace std;
 
 namespace deepquote {
 
-// ============================================================================
-// Consolidated String Conversions
-// ============================================================================
-
+// String conversions
 template<>
 string enumToString(Side side) {
     switch (side) {
@@ -57,10 +54,7 @@ string enumToString(OrderStatus status) {
     }
 }
 
-// ============================================================================
-// Simplified Time Utilities
-// ============================================================================
-
+// Time utilities
 Timestamp getCurrentTimestamp() {
     auto now = chrono::system_clock::now();
     auto duration = now.time_since_epoch();
@@ -82,7 +76,6 @@ string timestampToString(Timestamp ts) {
 }
 
 Timestamp stringToTimestamp(const string& str) {
-    // Simplified parsing - just parse the date/time part for now
     tm tm_val = {};
     istringstream ss(str);
     ss >> get_time(&tm_val, "%Y-%m-%d %H:%M:%S");

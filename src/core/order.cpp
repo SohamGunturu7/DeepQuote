@@ -5,10 +5,7 @@
 
 namespace deepquote {
 
-// ============================================================================
-// Order Implementation
-// ============================================================================
-
+// Order implementation
 Order::Order(OrderId id, Side side, OrderType type, Price price, 
              Quantity quantity, const std::string& symbol, 
              const std::string& trader_id)
@@ -66,10 +63,7 @@ std::string Order::toString() const {
     return oss.str();
 }
 
-// ============================================================================
-// Trade Implementation
-// ============================================================================
-
+// Trade implementation
 Trade::Trade(OrderId buy_id, OrderId sell_id, Price price, 
              Quantity quantity, const std::string& symbol)
     : buy_order_id(buy_id), sell_order_id(sell_id), price(price),
@@ -96,10 +90,7 @@ std::string Trade::toString() const {
     return oss.str();
 }
 
-// ============================================================================
-// OrderBookLevel Implementation
-// ============================================================================
-
+// Order book level implementation
 OrderBookLevel::OrderBookLevel(Price price, Quantity quantity, int count)
     : price(price), total_quantity(quantity), order_count(count) {
 }
@@ -119,10 +110,7 @@ std::string OrderBookLevel::toString() const {
     return oss.str();
 }
 
-// ============================================================================
-// OrderBookSnapshot Implementation
-// ============================================================================
-
+// Order book snapshot implementation
 OrderBookSnapshot::OrderBookSnapshot(const std::string& symbol, Timestamp timestamp)
     : symbol(symbol), timestamp(timestamp), mid_price(0), spread(0), 
       bid_depth(0), ask_depth(0) {
@@ -175,10 +163,7 @@ std::string OrderBookSnapshot::toString() const {
     return oss.str();
 }
 
-// ============================================================================
-// OrderManager Implementation
-// ============================================================================
-
+// Order manager implementation
 OrderId OrderManager::createOrder(const Order& order) {
     if (!order.isValid()) {
         throw std::invalid_argument("Invalid order");
@@ -205,11 +190,8 @@ bool OrderManager::cancelOrder(OrderId order_id) {
 
 bool OrderManager::modifyOrder(OrderId order_id, Price new_price, Quantity new_quantity) {
     auto order = findOrderById(order_id);
-    if (order && order->isActive()) {
-        if (new_quantity < order->filled_quantity) {
-            return false; // Can't reduce below filled quantity
-        }
-        
+    if (order && order->isActive() && 
+        isValidPrice(new_price) && isValidQuantity(new_quantity)) {
         order->price = new_price;
         order->quantity = new_quantity;
         order->timestamp = getCurrentTimestamp();
@@ -237,51 +219,20 @@ std::vector<std::shared_ptr<Order>> OrderManager::getOrdersBySymbol(const std::s
 }
 
 void OrderManager::processTrade(const Trade& trade) {
-    if (!trade.isValid()) {
-        throw std::invalid_argument("Invalid trade");
-    }
-    
     trades_.push_back(trade);
-    
-    // Update order fill quantities
-    auto buy_order = findOrderById(trade.buy_order_id);
-    auto sell_order = findOrderById(trade.sell_order_id);
-    
-    if (buy_order) {
-        buy_order->filled_quantity += trade.quantity;
-        if (buy_order->isFullyFilled()) {
-            buy_order->status = OrderStatus::FILLED;
-        } else if (buy_order->isPartiallyFilled()) {
-            buy_order->status = OrderStatus::PARTIAL;
-        }
-        buy_order->timestamp = getCurrentTimestamp();
-    }
-    
-    if (sell_order) {
-        sell_order->filled_quantity += trade.quantity;
-        if (sell_order->isFullyFilled()) {
-            sell_order->status = OrderStatus::FILLED;
-        } else if (sell_order->isPartiallyFilled()) {
-            sell_order->status = OrderStatus::PARTIAL;
-        }
-        sell_order->timestamp = getCurrentTimestamp();
-    }
 }
 
 std::vector<Trade> OrderManager::getTrades() const {
     return trades_;
 }
 
-// ============================================================================
-// Helper Methods
-// ============================================================================
-
 std::shared_ptr<Order> OrderManager::findOrderById(OrderId id) const {
-    auto it = std::find_if(orders_.begin(), orders_.end(),
-                          [id](const std::shared_ptr<Order>& order) {
-                              return order->id == id;
-                          });
-    return it != orders_.end() ? *it : nullptr;
+    for (const auto& order : orders_) {
+        if (order->id == id) {
+            return order;
+        }
+    }
+    return nullptr;
 }
 
 std::vector<std::shared_ptr<Order>> OrderManager::findOrdersBySymbol(const std::string& symbol) const {

@@ -14,112 +14,83 @@ using namespace std;
 
 namespace deepquote {
 
-// ============================================================================
-// Market Simulator Implementation
-// ============================================================================
-
+// Market simulator implementation
 class MarketSimulator {
 public:
     MarketSimulator(const vector<string>& symbols);
     ~MarketSimulator() = default;
     
-    // Order processing
     vector<Trade> processOrder(shared_ptr<Order> order);
     vector<Trade> processOrders(const vector<shared_ptr<Order>>& orders);
     
-    // Market data access
     OrderBookSnapshot getSnapshot(const string& symbol) const;
     vector<OrderBookSnapshot> getAllSnapshots() const;
     
-    // Market data for specific symbols
     Price getBestBid(const string& symbol) const;
     Price getBestAsk(const string& symbol) const;
     Price getMidPrice(const string& symbol) const;
     Price getSpread(const string& symbol) const;
     
-    // Order book access
     MatchingEngine& getMatchingEngine(const string& symbol);
     const MatchingEngine& getMatchingEngine(const string& symbol) const;
     
-    // Symbol management
     vector<string> getSymbols() const;
     bool hasSymbol(const string& symbol) const;
     size_t getSymbolCount() const;
     
-    // Trade callbacks (global and per-symbol)
     using TradeCallback = function<void(const Trade&)>;
     void setGlobalTradeCallback(TradeCallback callback);
     void setSymbolTradeCallback(const string& symbol, TradeCallback callback);
     
-    // Market statistics
     size_t getTotalOrderCount() const;
     size_t getTotalTradeCount() const;
     vector<Trade> getAllTrades() const;
     
-    // ============================================================================
-    // Trader Management
-    // ============================================================================
-    
-    // Regular trader registration and management
+    // Trader management
     void registerTrader(const string& trader_id, double initial_cash = 0.0);
     void unregisterTrader(const string& trader_id);
     bool hasTrader(const string& trader_id) const;
     vector<string> getTraderIds() const;
     size_t getTraderCount() const;
     
-    // Regular trader access
     Trader& getTrader(const string& trader_id);
     const Trader& getTrader(const string& trader_id) const;
     
-    // ============================================================================
-    // RL Trader Management
-    // ============================================================================
-    
-    // RL trader registration and management
+    // RL trader management
     void addRLTrader(const shared_ptr<RLTrader>& rl_trader);
     void removeRLTrader(const string& agent_id);
     bool hasRLTrader(const string& agent_id) const;
     vector<string> getRLTraderIds() const;
     size_t getRLTraderCount() const;
     
-    // RL trader access
     shared_ptr<RLTrader> getRLTrader(const string& agent_id);
     shared_ptr<const RLTrader> getRLTrader(const string& agent_id) const;
     vector<shared_ptr<RLTrader>> getAllRLTraders();
     vector<shared_ptr<const RLTrader>> getAllRLTraders() const;
     
-    // RL trader statistics
     unordered_map<string, RLTraderStats> getAllRLTraderStats() const;
     void resetAllRLEpisodes();
     void addRewardToRLTrader(const string& agent_id, double reward);
     
-    // Trader statistics (works for both regular and RL traders)
     unordered_map<string, double> getMarkPrices() const;
     void updateMarkPrices(const unordered_map<string, double>& mark_prices);
     void markAllTradersToMarket();
     
-    // Portfolio analytics
     double getTotalMarketValue() const;
     double getTotalRealizedPnL() const;
     double getTotalUnrealizedPnL() const;
     
-    // ============================================================================
-    // Market Events and Price Movement
-    // ============================================================================
-    
-    // Market events
+    // Market events and price movement
     void enableMarketEvents(bool enable = true);
     void setEventProbability(double probability);
     void updateMarketEvents(double dt);
     vector<MarketEvent> getActiveEvents() const;
     size_t getActiveEventCount() const;
     
-    // Price movement
     void generatePriceMovement(double dt);
     void setPriceVolatility(const string& symbol, double volatility);
     void setPriceDrift(const string& symbol, double drift);
     
-    // Utility
     bool isEmpty() const;
     void reset();
     void resetTraders();
@@ -136,13 +107,11 @@ private:
     TradeCallback global_trade_callback_;
     vector<Trade> all_trades_;
     
-    // Market events and price movement
     unique_ptr<MarketEventGenerator> event_generator_;
     unordered_map<string, MicrostructureNoise> noise_generators_;
     bool market_events_enabled_;
     double last_update_time_;
     
-    // Helper methods
     void initializeEngine(const string& symbol);
     void onTrade(const Trade& trade);
     bool isValidOrder(const shared_ptr<Order>& order) const;
