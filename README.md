@@ -13,62 +13,74 @@ DeepQuote is a high-performance market simulation and reinforcement learning env
 ## Directory Structure
 ```
 DeepQuote/
-├── CMakeLists.txt                # CMake build configuration
-├── deepquote_simulator.cpython-310-darwin.so  # Pre-built Python extension
-├── include/                      # C++ header files
-├── src/                          # C++ source files
-├── build/                        # Build artifacts
-├── python_rl/                    # Python RL environment, agents, and demos
-├── test/                         # C++ unit tests
-├── setup.py                      # Python package setup
-├── README.md                     # This file
+├── CMakeLists.txt     # CMake build (C++ library + Python module)
+├── setup.py           # pip build of the Python module
+├── pyproject.toml
+├── include/           # C++ headers (core, market, strategies)
+├── src/               # C++ sources and pybind11 bindings
+└── python_rl/         # Gymnasium environment, agents, training and demo
 ```
 
 ## Installation
 
 ### Prerequisites
-- C++17 compatible compiler
-- Python 3.10+
-- CMake (for building from source)
+- C++17 compiler
+- Python 3.8+
+- CMake 3.16+ (only for the CMake build)
 
-### Python Package (Recommended)
-If the pre-built `deepquote_simulator.cpython-310-darwin.so` is compatible with your system, you can use the Python interface directly:
+### Python package (recommended)
+Builds the C++ simulator and installs it as the `deepquote_simulator` module:
 
 ```bash
-cd python_rl
-pip install -r requirements.txt
+pip install .
+pip install -r python_rl/requirements.txt
 ```
 
-### Build from Source
-If you need to rebuild the C++ core and Python bindings:
-
+### CMake build
 ```bash
+pip install pybind11
 mkdir -p build && cd build
 cmake ..
 make
-cd ../python_rl
-pip install -r requirements.txt
 ```
+This puts `deepquote_simulator*.so` in `build/`. `python_rl/deepquote_env.py` finds it there
+automatically if the module isn't installed.
 
 ## Usage
 
 ### Python RL Environment
-Example usage in Python:
-
 ```python
 from deepquote_env import DeepQuoteEnv
-env = DeepQuoteEnv()
-obs = env.reset()
+
+env = DeepQuoteEnv(symbols=["AAPL", "GOOGL"])
+obs, info = env.reset(seed=0)
 done = False
 while not done:
     action = env.action_space.sample()
-    obs, reward, done, info = env.step(action)
+    obs, reward, terminated, truncated, info = env.step(action)
+    done = terminated or truncated
 ```
 
-See `python_rl/demo.py` for more examples.
+Run from `python_rl/`:
+```bash
+python demo.py            # rule-based agents on one simulated market, saves a plot
+python train.py --quick   # end-to-end training check (PPO, SAC, rule-based baselines)
+python train.py           # full comparison run
+```
+
+See `python_rl/README.md` for the observation/action spaces and agent options.
 
 ### C++ Core
-You can use the C++ classes directly for custom simulations. See the `test/` directory for usage examples.
+```cpp
+#include "market/market_simulator.h"
+#include "market/market_maker.h"
+
+deepquote::MarketSimulator sim({"AAPL"});
+deepquote::MarketMakerConfig config;
+config.symbols = {"AAPL"};
+deepquote::MarketMaker mm(&sim, config);
+mm.step();  // place quotes around the fair price
+```
 
 ## Development
 
@@ -79,21 +91,3 @@ You can use the C++ classes directly for custom simulations. See the `test/` dir
 
 ### Python
 - RL environment and agents: `python_rl/`
-
-## Testing
-
-### Python
-Run integration tests:
-```bash
-cd python_rl
-python test_simple_integration.py
-```
-
-### C++
-Build and run tests:
-```bash
-mkdir -p build && cd build
-cmake ..
-make
-ctest
-```

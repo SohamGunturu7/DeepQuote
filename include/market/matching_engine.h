@@ -23,6 +23,7 @@ public:
     vector<Trade> processOrder(shared_ptr<Order> order);
     vector<Trade> processMarketOrder(shared_ptr<Order> order);
     vector<Trade> processLimitOrder(shared_ptr<Order> order);
+    bool cancelOrder(OrderId order_id) { return order_book_.cancelOrder(order_id); }
     
     // Order book access
     OrderBook& getOrderBook() { return order_book_; }

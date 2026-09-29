@@ -11,8 +11,6 @@ from typing import Dict, List, Tuple, Optional, Any
 import gymnasium as gym
 from stable_baselines3 import PPO, SAC, TD3, A2C
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
-import wandb
 import os
 
 # Neural network for trading decisions
@@ -162,36 +160,29 @@ class MarketMakingAgent:
         self.order_size = order_size
         self.max_orders_per_side = max_orders_per_side
         
-        self.active_orders = {}
-        self.inventory = {symbol: 0.0 for symbol in env.symbols}
+        self.step_count = 0
         
     def get_action(self, obs: np.ndarray) -> np.ndarray:
-        market_data = self._parse_observation(obs)
+        # One order per step: cycle through symbols, alternating bid and ask quotes
+        n_symbols = len(self.env.symbols)
+        symbol_idx = (self.step_count // 2) % n_symbols
+        is_bid = self.step_count % 2 == 0
+        self.step_count += 1
         
-        actions = []
+        symbol = self.env.symbols[symbol_idx]
+        mid_price = self._parse_observation(obs)[symbol]['mid_price']
+        inventory = obs[-n_symbols + symbol_idx]
         
-        for symbol in self.env.symbols:
-            mid_price = market_data[symbol]['mid_price']
-            current_inventory = self.inventory[symbol]
-            
-            inventory_skew = current_inventory / self.order_size
-            spread_adjustment = inventory_skew * 0.0001
-            
-            bid_spread = self.spread_target + spread_adjustment
-            ask_spread = self.spread_target - spread_adjustment
-            
-            bid_price = mid_price - bid_spread / 2
-            ask_price = mid_price + ask_spread / 2
-            
-            bid_action = self._price_to_action(bid_price, mid_price, 0)
-            ask_action = self._price_to_action(ask_price, mid_price, 1)
-            
-            actions.extend([bid_action, ask_action])
+        # Skew quotes to shed inventory: long -> cheaper asks, short -> richer bids
+        skew = np.clip(inventory / max(self.env.max_position, 1.0), -1, 1) * self.spread_target
+        if is_bid:
+            price = mid_price * (1 - self.spread_target / 2 - skew)
+        else:
+            price = mid_price * (1 + self.spread_target / 2 - skew)
         
-        while len(actions) < 4:
-            actions.append(0.0)
-        
-        return np.array(actions[:4])
+        quantity = min(self.order_size / self.env.max_order_size, 1.0)
+        action_type = 2 if is_bid else 3
+        return np.array([action_type, symbol_idx, quantity, self._price_to_action(price, mid_price)])
     
     def _parse_observation(self, obs: np.ndarray) -> Dict[str, Dict[str, float]]:
         market_data = {}
@@ -207,12 +198,11 @@ class MarketMakingAgent:
         
         return market_data
     
-    def _price_to_action(self, price: float, mid_price: float, action_type: int) -> float:
-        price_range = mid_price * 0.1
-        normalized_price = (price - mid_price + price_range) / (2 * price_range)
-        normalized_price = np.clip(normalized_price, 0, 1)
-        
-        return normalized_price
+    def _price_to_action(self, price: float, mid_price: float) -> float:
+        # Inverse of the env's limit price mapping: mid * (1 + band * (2p - 1))
+        band = self.env.price_band
+        normalized_price = ((price / mid_price - 1) / band + 1) / 2
+        return float(np.clip(normalized_price, 0, 1))
 
 # Mean reversion strategies
 class MeanReversionAgent:
@@ -764,6 +754,16 @@ class StableBaselinesAgent:
                 verbose=1,
                 tensorboard_log=tensorboard_log
             )
+        elif agent_type == "A2C":
+            self.agent = A2C(
+                "MlpPolicy",
+                vec_env,
+                learning_rate=learning_rate,
+                gamma=0.99,
+                ent_coef=0.01,
+                verbose=1,
+                tensorboard_log=tensorboard_log
+            )
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
         
@@ -773,6 +773,8 @@ class StableBaselinesAgent:
         self.agent.learn(total_timesteps=total_timesteps, callback=callback)
     
     def get_action(self, obs: np.ndarray) -> np.ndarray:
+        # The policy was trained on VecNormalize'd observations
+        obs = self.vec_env.normalize_obs(obs)
         action, _ = self.agent.predict(obs, deterministic=True)
         return action
     
@@ -781,8 +783,10 @@ class StableBaselinesAgent:
         self.vec_env.save(f"{path}_vec_normalize.pkl")
     
     def load(self, path: str):
-        self.agent = self.agent.load(path)
-        self.vec_env = VecNormalize.load(f"{path}_vec_normalize.pkl", self.vec_env)
+        self.vec_env = VecNormalize.load(f"{path}_vec_normalize.pkl", DummyVecEnv([lambda: self.env]))
+        self.vec_env.training = False
+        self.vec_env.norm_reward = False
+        self.agent = self.agent.load(path, env=self.vec_env)
 
 # Factory function to create agents
 def create_agent(agent_type: str, env: gym.Env, **kwargs) -> Any:

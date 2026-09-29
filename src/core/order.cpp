@@ -16,8 +16,9 @@ Order::Order(OrderId id, Side side, OrderType type, Price price,
 }
 
 bool Order::isValid() const {
+    // Market orders execute at the book's prices, so they don't need a limit price
     return isValidOrderId(id) && 
-           isValidPrice(price) && 
+           (type == OrderType::MARKET || isValidPrice(price)) && 
            isValidQuantity(quantity) &&
            !symbol.empty() && 
            !trader_id.empty() &&

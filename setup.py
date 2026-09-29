@@ -26,6 +26,10 @@ ext_modules = [
             "src/market/matching_engine.cpp",
             "src/market/market_maker.cpp",
             "src/market/market_events.cpp",
+            "src/strategies/trading_strategy.cpp",
+            "src/strategies/market_making_strategy.cpp",
+            "src/strategies/mean_reversion_strategy.cpp",
+            "src/strategies/pairs_trading_strategy.cpp",
         ],
         include_dirs=["include"],
         language="c++",
@@ -58,7 +62,6 @@ setup(
     ],
     python_requires=">=3.8",
     install_requires=[
-        "pybind11>=2.6.0",
         "numpy>=1.19.0",
     ],
     extras_require={

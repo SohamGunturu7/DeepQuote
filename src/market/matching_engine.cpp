@@ -28,7 +28,7 @@ vector<Trade> MatchingEngine::processOrder(shared_ptr<Order> order) {
         case OrderType::LIMIT:
             return processLimitOrder(order);
         case OrderType::CANCEL:
-            // Handle cancellation (not implemented yet)
+            order_book_.cancelOrder(order->id);
             return {};
         default:
             throw invalid_argument("Unsupported order type");
@@ -95,6 +95,10 @@ vector<Trade> MatchingEngine::processMarketOrder(shared_ptr<Order> order) {
                 trade_callback_(trade);
             }
         }
+        
+        // Remove filled/cancelled orders so the level empties and the loop advances
+        order_book_.removeInactiveOrders(best_price,
+            (order->side == Side::BUY) ? Side::SELL : Side::BUY);
     }
     
     // Market orders are either fully filled or rejected if no liquidity
@@ -182,6 +186,10 @@ vector<Trade> MatchingEngine::matchOrder(shared_ptr<Order> order) {
                 trade_callback_(trade);
             }
         }
+        
+        // Remove filled/cancelled orders so the level empties and the loop advances
+        order_book_.removeInactiveOrders(best_price,
+            (order->side == Side::BUY) ? Side::SELL : Side::BUY);
     }
     
     return trades;

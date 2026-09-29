@@ -2,10 +2,6 @@
 *.o
 *.obj
 
-# Compiled executables
-test_*
-!test/
-
 # Python extensions
 *.so
 *.pyd
@@ -51,3 +47,8 @@ venv/
 
 # Logs
 *.log
+
+# Training outputs
+python_rl/training_results/
+python_rl/models/
+python_rl/wandb/

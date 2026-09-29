@@ -12,7 +12,7 @@ def debug_agent_actions():
     print("Debugging agent actions...")
     
     env = DeepQuoteEnv(symbols=["AAPL"], trader_id="debug_agent", strategy_type="DQN")
-    obs = env.reset()
+    obs, _ = env.reset()
     
     print(f"Initial observation shape: {obs.shape}")
     print(f"Initial observation: {obs}")
@@ -60,7 +60,8 @@ def debug_agent_actions():
                     print("✅ Action looks valid")
                     
                     try:
-                        obs, reward, done, info = env.step(action)
+                        obs, reward, terminated, truncated, info = env.step(action)
+                        done = terminated or truncated
                         print(f"✅ Step successful! Reward: {reward}, Done: {done}")
                         print(f"Info: {info}")
                     except Exception as e:

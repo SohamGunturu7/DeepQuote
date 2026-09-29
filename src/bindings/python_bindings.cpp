@@ -92,6 +92,24 @@ PYBIND11_MODULE(deepquote_simulator, m) {
     // RLTraderStats Structure
     // ============================================================================
     
+    py::class_<OrderBookLevel>(m, "OrderBookLevel")
+        .def(py::init<>())
+        .def_readwrite("price", &OrderBookLevel::price)
+        .def_readwrite("total_quantity", &OrderBookLevel::total_quantity)
+        .def_readwrite("order_count", &OrderBookLevel::order_count)
+        .def("__str__", &OrderBookLevel::toString);
+    
+    py::class_<OrderBookSnapshot>(m, "OrderBookSnapshot")
+        .def(py::init<>())
+        .def_readwrite("symbol", &OrderBookSnapshot::symbol)
+        .def_readwrite("bids", &OrderBookSnapshot::bids)
+        .def_readwrite("asks", &OrderBookSnapshot::asks)
+        .def_readwrite("mid_price", &OrderBookSnapshot::mid_price)
+        .def_readwrite("spread", &OrderBookSnapshot::spread)
+        .def_readwrite("bid_depth", &OrderBookSnapshot::bid_depth)
+        .def_readwrite("ask_depth", &OrderBookSnapshot::ask_depth)
+        .def("__str__", &OrderBookSnapshot::toString);
+    
     py::class_<RLTraderStats>(m, "RLTraderStats")
         .def(py::init<>())
         .def_readwrite("cash", &RLTraderStats::cash)
@@ -204,6 +222,8 @@ PYBIND11_MODULE(deepquote_simulator, m) {
             return self.processOrder(std::make_shared<Order>(order));
         })
         .def("process_orders", &MarketSimulator::processOrders)
+        .def("cancel_order", &MarketSimulator::cancelOrder, py::arg("symbol"), py::arg("order_id"))
+        .def("next_order_id", &MarketSimulator::getNextOrderId)
         
         // Market data access
         .def("get_snapshot", &MarketSimulator::getSnapshot)
@@ -212,6 +232,12 @@ PYBIND11_MODULE(deepquote_simulator, m) {
         .def("get_best_ask", &MarketSimulator::getBestAsk)
         .def("get_mid_price", &MarketSimulator::getMidPrice)
         .def("get_spread", &MarketSimulator::getSpread)
+        .def("get_bid_depth", [](const MarketSimulator& self, const std::string& symbol) {
+            return self.getMatchingEngine(symbol).getOrderBook().getBidDepth();
+        })
+        .def("get_ask_depth", [](const MarketSimulator& self, const std::string& symbol) {
+            return self.getMatchingEngine(symbol).getOrderBook().getAskDepth();
+        })
         
         // Symbol management
         .def("get_symbols", &MarketSimulator::getSymbols)
@@ -246,12 +272,16 @@ PYBIND11_MODULE(deepquote_simulator, m) {
         // Market events and price movement
         .def("enable_market_events", &MarketSimulator::enableMarketEvents)
         .def("set_event_probability", &MarketSimulator::setEventProbability)
+        .def("set_event_logging", &MarketSimulator::setEventLogging)
+        .def("seed", &MarketSimulator::seed)
         .def("update_market_events", &MarketSimulator::updateMarketEvents)
         .def("get_active_events", &MarketSimulator::getActiveEvents)
         .def("get_active_event_count", &MarketSimulator::getActiveEventCount)
         .def("generate_price_movement", &MarketSimulator::generatePriceMovement)
         .def("set_price_volatility", &MarketSimulator::setPriceVolatility)
         .def("set_price_drift", &MarketSimulator::setPriceDrift)
+        .def("get_fair_price", &MarketSimulator::getFairPrice)
+        .def("set_fair_price", &MarketSimulator::setFairPrice)
         
         // Market utilities
         .def("get_mark_prices", &MarketSimulator::getMarkPrices)
@@ -301,8 +331,11 @@ PYBIND11_MODULE(deepquote_simulator, m) {
     
     py::class_<MarketMaker>(m, "MarketMaker")
         .def(py::init<MarketSimulator*, const MarketMakerConfig&>(),
-             py::arg("simulator"), py::arg("config"))
+             py::arg("simulator"), py::arg("config"),
+             py::keep_alive<1, 2>())
         .def("start", &MarketMaker::start)
+        .def("step", &MarketMaker::step)
+        .def("reset", &MarketMaker::reset)
         .def("stop", &MarketMaker::stop)
         .def("is_running", &MarketMaker::isRunning)
         .def("set_spread", &MarketMaker::setSpread)

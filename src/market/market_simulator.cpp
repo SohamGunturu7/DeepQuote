@@ -53,6 +53,14 @@ vector<Trade> MarketSimulator::processOrder(shared_ptr<Order> order) {
     return it->second->processOrder(order);
 }
 
+bool MarketSimulator::cancelOrder(const string& symbol, OrderId order_id) {
+    auto it = engines_.find(symbol);
+    if (it == engines_.end()) {
+        return false;
+    }
+    return it->second->cancelOrder(order_id);
+}
+
 vector<Trade> MarketSimulator::processOrders(const vector<shared_ptr<Order>>& orders) {
     vector<Trade> all_trades;
     
@@ -442,11 +450,16 @@ void MarketSimulator::reset() {
         pair.second = make_unique<MatchingEngine>(pair.first);
     }
     
-    // Reset mark prices
+    // Reset mark and fair prices
     mark_prices_.clear();
+    fair_prices_.clear();
+    if (event_generator_) {
+        event_generator_->reset();
+    }
     
     // Clear order tracking
     order_to_trader_.clear();
+    last_update_time_ = 0.0;
 }
 
 void MarketSimulator::resetTraders() {
@@ -567,6 +580,27 @@ void MarketSimulator::setEventProbability(double probability) {
     }
 }
 
+void MarketSimulator::seed(uint32_t seed) {
+    if (event_generator_) {
+        event_generator_->seed(seed);
+    }
+    auto symbols = getSymbols();
+    std::sort(symbols.begin(), symbols.end());
+    uint32_t offset = 1000;
+    for (const auto& symbol : symbols) {
+        auto it = noise_generators_.find(symbol);
+        if (it != noise_generators_.end()) {
+            it->second.seed(seed + offset++);
+        }
+    }
+}
+
+void MarketSimulator::setEventLogging(bool enable) {
+    if (event_generator_) {
+        event_generator_->setVerbose(enable);
+    }
+}
+
 void MarketSimulator::updateMarketEvents(double dt) {
     if (!market_events_enabled_ || !event_generator_) {
         return;
@@ -598,65 +632,38 @@ void MarketSimulator::generatePriceMovement(double dt) {
         return;
     }
     
-    // Get current time
-    auto now = std::chrono::steady_clock::now();
-    double current_time = std::chrono::duration<double>(now.time_since_epoch()).count();
+    // Advance simulated time by the caller's dt so results don't depend on wall-clock speed
+    double actual_dt = dt;
+    last_update_time_ += dt;
     
-    if (last_update_time_ == 0.0) {
-        last_update_time_ = current_time;
-        return;
-    }
-    
-    double actual_dt = current_time - last_update_time_;
-    last_update_time_ = current_time;
-    
-    // Generate price movements for each symbol
+    // Advance each symbol's fair price; market makers re-quote around it
     for (const auto& symbol : getSymbols()) {
-        // Get current mid price
-        double current_price = getMidPrice(symbol);
+        double current_price = getFairPrice(symbol);
         if (current_price <= 0.0) {
+            current_price = getMidPrice(symbol);
+        }
+        if (!(current_price > 0.0)) {
             current_price = 100.0; // Default price if no orders
         }
         
-        // Generate price change from event generator
         double price_change = event_generator_->generatePriceChange(symbol, current_price, actual_dt);
         
-        // Add microstructure noise
         auto noise_it = noise_generators_.find(symbol);
         if (noise_it != noise_generators_.end()) {
-            double noise = noise_it->second.generateNoise(actual_dt);
-            price_change += noise * current_price;
+            price_change += noise_it->second.generateNoise(actual_dt) * current_price;
         }
         
-        // Apply price change by creating market orders
-        if (std::abs(price_change) > 0.001 * current_price) { // Only if change is significant
-            // Create a "market maker" order to absorb the price movement
-            auto order = std::make_shared<Order>();
-            order->id = 999999; // Special ID for market events
-            order->symbol = symbol;
-            order->trader_id = "market_events";
-            order->strategy_id = "price_movement";
-            order->type = OrderType::MARKET;
-            order->quantity = 100.0; // Large quantity to move price
-            order->price = 0.0; // Market order
-            
-            if (price_change > 0) {
-                // Price going up - create buy order
-                order->side = Side::BUY;
-            } else {
-                // Price going down - create sell order
-                order->side = Side::SELL;
-                order->quantity = -order->quantity;
-            }
-            
-            // Process the order (this will move the price)
-            try {
-                processOrder(order);
-            } catch (...) {
-                // Ignore errors from market event orders
-            }
-        }
+        fair_prices_[symbol] = std::max(0.01, current_price + price_change);
     }
+}
+
+double MarketSimulator::getFairPrice(const string& symbol) const {
+    auto it = fair_prices_.find(symbol);
+    return it != fair_prices_.end() ? it->second : 0.0;
+}
+
+void MarketSimulator::setFairPrice(const string& symbol, double price) {
+    fair_prices_[symbol] = price;
 }
 
 void MarketSimulator::setPriceVolatility(const string& symbol, double volatility) {

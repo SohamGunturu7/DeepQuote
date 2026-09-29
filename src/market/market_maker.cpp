@@ -11,7 +11,7 @@ namespace deepquote {
 // ============================================================================
 
 MarketMaker::MarketMaker(MarketSimulator* simulator, const MarketMakerConfig& config)
-    : simulator_(simulator), config_(config), running_(false), next_order_id_(1) {
+    : simulator_(simulator), config_(config), running_(false) {
     
     // Register trader with simulator
     simulator_->registerTrader(config_.trader_id, 1000000.0);  // $1M initial capital
@@ -72,6 +72,15 @@ void MarketMaker::stop() {
     std::cout << "Market Maker stopped" << std::endl;
 }
 
+void MarketMaker::reset() {
+    for (auto& pair : active_orders_) {
+        pair.second.clear();
+    }
+    for (auto& pair : price_history_) {
+        pair.second.clear();
+    }
+}
+
 // ============================================================================
 // Worker Thread
 // ============================================================================
@@ -105,9 +114,12 @@ void MarketMaker::updateSymbolQuotes(const std::string& symbol) {
     double best_bid = simulator_->getBestBid(symbol);
     double best_ask = simulator_->getBestAsk(symbol);
     
-    // Calculate target prices
+    // Calculate target prices: follow the simulator's fair price when it has one
     double mid_price;
-    if (best_bid > 0 && best_ask > 0) {
+    double fair_price = simulator_->getFairPrice(symbol);
+    if (fair_price > 0) {
+        mid_price = fair_price;
+    } else if (best_bid > 0 && best_ask > 0) {
         // Use existing market prices
         mid_price = (best_bid + best_ask) / 2.0;
     } else {
@@ -143,9 +155,7 @@ void MarketMaker::cancelOldOrders(const std::string& symbol) {
     
     for (auto& order : it->second) {
         if (order && order->isActive()) {
-            // In a real system, we would send cancel requests to the exchange
-            // For now, we just mark them as cancelled
-            order->status = OrderStatus::CANCELLED;
+            simulator_->cancelOrder(symbol, order->id);
         }
     }
     

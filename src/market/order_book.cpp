@@ -54,6 +54,19 @@ bool OrderBook::cancelOrder(OrderId order_id) {
     return true;
 }
 
+void OrderBook::removeInactiveOrders(Price price, Side side) {
+    vector<OrderId> stale;
+    for (const auto& order : getOrdersAtPrice(price, side)) {
+        if (!order->isActive()) {
+            stale.push_back(order->id);
+        }
+    }
+    for (OrderId id : stale) {
+        removeOrderFromPriceLevel(id, price, side);
+        orders_by_id_.erase(id);
+    }
+}
+
 bool OrderBook::modifyOrder(OrderId order_id, Price new_price, Quantity new_quantity) {
     auto order = getOrder(order_id);
     if (!order || !order->isActive()) {

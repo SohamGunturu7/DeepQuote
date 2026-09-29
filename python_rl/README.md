@@ -4,9 +4,11 @@ This directory contains the Python-based reinforcement learning system for DeepQ
 
 ## 🚀 Quick Start
 
-### 1. Install Dependencies
+### 1. Build the Simulator and Install Dependencies
 
 ```bash
+pip install pybind11
+pip install ..          # builds the C++ simulator as the deepquote_simulator module
 pip install -r requirements.txt
 ```
 
@@ -16,28 +18,28 @@ pip install -r requirements.txt
 python demo.py
 ```
 
-This will show you:
-- Basic environment functionality
-- Market making agent behavior
-- Mean reversion agent behavior
-- Price movement visualization
+This runs the market making, mean reversion, momentum and volatility breakout agents on
+the same simulated market and saves their price and P&L curves to `price_movement_demo.png`.
 
 ### 3. Train an Agent
 
 ```bash
-python train.py
+python train.py --quick                        # ~1 minute end-to-end check
+python train.py                                # PPO, SAC, MarketMaking, MeanReversion; 50k steps each
+python train.py --agents PPO --timesteps 200000
 ```
 
-This will train a PPO agent and compare it with other strategies.
+This trains the RL agents, evaluates them against the rule-based strategies, and writes
+results and plots to `training_results/`.
 
 ## 🧠 Architecture
 
-### Environment (`environment.py`)
+### Environment (`deepquote_env.py`)
 
 The `DeepQuoteEnv` class provides a Gym-compatible interface to the C++ market simulator:
 
 - **Observation Space**: Market data + agent state + technical indicators
-- **Action Space**: [action_type, symbol_idx, quantity, price] normalized to [0,1]
+- **Action Space**: [action_type, symbol_idx, quantity, price]
 - **Reward Function**: Based on trading performance and risk management
 
 ### Agents (`agents.py`)
@@ -79,45 +81,54 @@ Complete training pipeline with:
 
 ## 📊 State and Action Spaces
 
+`DeepQuoteEnv` (`deepquote_env.py`) wraps the C++ simulator. Every action becomes a real
+order in the C++ matching engine, so fills, slippage and the bid/ask spread are real.
+Each step the price model moves each symbol's fair price and a market maker re-quotes
+around it, providing liquidity for the agent to trade against.
+
 ### Observation Space
-For each symbol (e.g., AAPL, GOOGL):
-- **Market Data**: Best bid/ask, mid price, spread
-- **Order Book**: Top 5 levels on each side
-- **Technical Indicators**: Moving averages, volatility, RSI
-- **Agent State**: Cash, inventory, P&L, position value
+18 values per symbol, then the agent's account:
+- **Market Data**: best bid, best ask, mid price, spread
+- **Order Book**: top 3 bid prices, bid sizes, ask prices, ask sizes
+- **Indicators**: volatility of recent returns, 20-step moving average
+- **Agent State**: cash, position value, unrealized P&L, realized P&L, total P&L, inventory per symbol
 
 ### Action Space
-- **Action Type**: BUY_MARKET, SELL_MARKET, BUY_LIMIT, SELL_LIMIT, CANCEL_ALL, HOLD
+`[action_type, symbol_idx, quantity, price]`:
+- **Action Type** (0-5): BUY_MARKET, SELL_MARKET, BUY_LIMIT, SELL_LIMIT, CANCEL_ALL, HOLD
 - **Symbol Index**: Which symbol to trade
-- **Quantity**: Normalized position size (0-1)
-- **Price**: Normalized price relative to current mid price
+- **Quantity** (0-1): Fraction of `max_order_size`
+- **Price** (0-1): Limit price from `mid * (1 - price_band)` to `mid * (1 + price_band)`
+
+### Reward
+Change in account equity (cash + inventory at mid) each step, as a percentage of initial cash.
 
 ## 🎮 Usage Examples
 
 ### Basic Environment Usage
 
 ```python
-from environment import DeepQuoteEnv
+from deepquote_env import DeepQuoteEnv
 from agents import create_agent
 
 # Create environment
 env = DeepQuoteEnv(
     symbols=["AAPL", "GOOGL"],
     initial_cash=100000.0,
-    max_position_size=1000.0,
-    transaction_cost=0.001
+    max_position=1000.0,
 )
 
 # Create agent
-agent = create_agent("PPO", env)
+agent = create_agent("MeanReversion", env)
 
 # Run episode
-obs, info = env.reset()
-for step in range(1000):
+obs, info = env.reset(seed=0)
+done = False
+while not done:
     action = agent.get_action(obs)
-    obs, reward, done, truncated, info = env.step(action)
-    if done:
-        break
+    obs, reward, terminated, truncated, info = env.step(action)
+    done = terminated or truncated
+print(info["total_pnl"])
 ```
 
 ### Training a Custom Agent
@@ -132,7 +143,7 @@ results = train_agent(
     initial_cash=100000.0,
     total_timesteps=100000,
     learning_rate=3e-4,
-    use_wandb=True
+    use_wandb=False
 )
 ```
 
@@ -180,9 +191,15 @@ pairs_trader = create_agent("PairsTrading", env, entry_threshold=2.0, exit_thres
 
 - `symbols`: List of trading symbols
 - `initial_cash`: Starting capital
-- `max_position_size`: Maximum position size
-- `transaction_cost`: Trading fees as percentage
+- `initial_price`: Starting price for every symbol
+- `max_order_size`: Shares per order at quantity = 1
+- `max_position`: Maximum absolute inventory per symbol
 - `max_steps`: Maximum steps per episode
+- `dt`: Simulated time per step, in years (default: one trading minute)
+- `price_band`: Range of limit prices around mid
+- `order_ttl`: Steps before an unfilled limit order is cancelled
+- `mm_spread_pct`, `mm_order_size`, `mm_levels`: Liquidity provided by the market maker
+- `event_probability`, `enable_events`, `verbose`: Random market events (crashes, news, ...)
 
 ### Agent Parameters
 

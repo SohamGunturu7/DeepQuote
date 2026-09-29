@@ -56,6 +56,7 @@ public:
     virtual double generatePriceChange(double current_price, double dt) = 0;
     virtual void updateParameters(const MarketEvent& event) = 0;
     virtual void reset() = 0;
+    virtual void seed(uint32_t seed) = 0;
 };
 
 // Geometric Brownian Motion (Standard model)
@@ -72,6 +73,7 @@ public:
     double generatePriceChange(double current_price, double dt) override;
     void updateParameters(const MarketEvent& event) override;
     void reset() override;
+    void seed(uint32_t seed) override;
     
     void setVolatility(double sigma) { sigma_ = sigma; }
     void setDrift(double mu) { mu_ = mu; }
@@ -96,6 +98,7 @@ public:
     double generatePriceChange(double current_price, double dt) override;
     void updateParameters(const MarketEvent& event) override;
     void reset() override;
+    void seed(uint32_t seed) override;
 };
 
 // ============================================================================
@@ -105,14 +108,16 @@ public:
 class MarketEventGenerator {
 private:
     std::vector<std::string> symbols_;
-    std::mt19937 rng_;
-    std::uniform_real_distribution<double> uniform_dist_;
+    // mutable: the const helper methods below draw random numbers
+    mutable std::mt19937 rng_;
+    mutable std::uniform_real_distribution<double> uniform_dist_;
     std::exponential_distribution<double> event_timing_dist_;
     
     // Event probabilities and parameters
     double base_event_probability_;
     double volatility_multiplier_;
     double correlation_strength_;
+    bool verbose_ = true;
     
     // Event history
     std::vector<MarketEvent> active_events_;
@@ -145,6 +150,10 @@ public:
     
     // Configuration
     void setBaseEventProbability(double prob) { base_event_probability_ = prob; }
+    void setVerbose(bool verbose) { verbose_ = verbose; }
+    // Clear active events and restore every price model's base parameters
+    void reset();
+    void seed(uint32_t seed);
     void setVolatilityMultiplier(double mult) { volatility_multiplier_ = mult; }
     void setCorrelationStrength(double strength) { correlation_strength_ = strength; }
     
@@ -171,10 +180,12 @@ private:
     double mean_reversion_speed_;
     std::mt19937 rng_;
     std::normal_distribution<double> noise_dist_;
+    double current_noise_ = 0.0;
     
 public:
     MicrostructureNoise(double amplitude = 0.001, double mean_reversion = 0.1);
     double generateNoise(double dt);
+    void seed(uint32_t seed);
     void setAmplitude(double amplitude) { noise_amplitude_ = amplitude; }
 };
 

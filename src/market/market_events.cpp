@@ -27,8 +27,7 @@ double GBMPriceModel::generatePriceChange(double current_price, double dt) {
 }
 
 void GBMPriceModel::updateParameters(const MarketEvent& event) {
-    static std::mt19937 rng(std::random_device{}());
-    static std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
+    std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
     
     switch (event.type) {
         case EventType::VOLATILITY_SPIKE:
@@ -40,16 +39,21 @@ void GBMPriceModel::updateParameters(const MarketEvent& event) {
             break;
         case EventType::NEWS_EVENT:
             // Random drift change based on news
-            mu_ += (uniform_dist(rng) - 0.5) * event.magnitude * 0.2;
+            mu_ += (uniform_dist(rng_) - 0.5) * event.magnitude * 0.2;
             break;
         case EventType::EARNINGS_ANNOUNCEMENT:
             // Significant drift change
-            mu_ += (uniform_dist(rng) - 0.5) * event.magnitude * 0.5;
+            mu_ += (uniform_dist(rng_) - 0.5) * event.magnitude * 0.5;
             sigma_ *= (1.0 + event.magnitude * 0.5); // Higher volatility
             break;
         default:
             break;
     }
+}
+
+void GBMPriceModel::seed(uint32_t seed) {
+    rng_.seed(seed);
+    normal_dist_.reset();
 }
 
 void GBMPriceModel::reset() {
@@ -80,10 +84,9 @@ double JumpDiffusionModel::generatePriceChange(double current_price, double dt) 
     double jump = 0.0;
     double jump_probability = lambda_ * dt;
     
-    static std::mt19937 rng(std::random_device{}());
-    static std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
+    std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
     
-    if (uniform_dist(rng) < jump_probability) {
+    if (uniform_dist(rng_) < jump_probability) {
         // Jump occurs
         jump = jump_mu_ + jump_sigma_ * normal_dist_(rng_);
     }
@@ -109,6 +112,11 @@ void JumpDiffusionModel::updateParameters(const MarketEvent& event) {
         default:
             break;
     }
+}
+
+void JumpDiffusionModel::seed(uint32_t seed) {
+    rng_.seed(seed);
+    normal_dist_.reset();
 }
 
 void JumpDiffusionModel::reset() {
@@ -187,8 +195,29 @@ void MarketEventGenerator::update(double dt) {
             model->updateParameters(event);
         }
         
-        std::cout << "Market Event: " << event.description << " (Magnitude: " 
-                  << event.magnitude << ", Duration: " << event.duration << "s)" << std::endl;
+        if (verbose_) {
+            std::cout << "Market Event: " << event.description << " (Magnitude: " 
+                      << event.magnitude << ", Duration: " << event.duration << "s)" << std::endl;
+        }
+    }
+}
+
+void MarketEventGenerator::seed(uint32_t seed) {
+    rng_.seed(seed);
+    uniform_dist_.reset();
+    // Seed models in symbol order so results don't depend on hash-map ordering
+    for (size_t i = 0; i < symbols_.size(); ++i) {
+        auto it = price_models_.find(symbols_[i]);
+        if (it != price_models_.end()) {
+            it->second->seed(seed + static_cast<uint32_t>(i) + 1);
+        }
+    }
+}
+
+void MarketEventGenerator::reset() {
+    active_events_.clear();
+    for (auto& [sym, model] : price_models_) {
+        model->reset();
     }
 }
 
@@ -309,14 +338,12 @@ MarketEvent MarketEventGenerator::generateTechnicalBreakout(const std::string& s
 // ============================================================================
 
 bool MarketEventGenerator::shouldGenerateEvent() const {
-    static std::mt19937 rng(std::random_device{}());
-    static std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
-    return uniform_dist(rng) < base_event_probability_;
+    std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
+    return uniform_dist(rng_) < base_event_probability_;
 }
 
 EventType MarketEventGenerator::selectRandomEventType() const {
-    static std::mt19937 rng(std::random_device{}());
-    static std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
+    std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
     
     std::vector<EventType> event_types = {
         EventType::PRICE_SHOCK,
@@ -330,30 +357,27 @@ EventType MarketEventGenerator::selectRandomEventType() const {
         EventType::FED_ANNOUNCEMENT
     };
     
-    return event_types[static_cast<int>(uniform_dist(rng) * event_types.size())];
+    return event_types[static_cast<int>(uniform_dist(rng_) * event_types.size())];
 }
 
 std::string MarketEventGenerator::selectRandomSymbol() const {
-    static std::mt19937 rng(std::random_device{}());
-    static std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
-    return symbols_[static_cast<int>(uniform_dist(rng) * symbols_.size())];
+    std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
+    return symbols_[static_cast<int>(uniform_dist(rng_) * symbols_.size())];
 }
 
 double MarketEventGenerator::generateEventMagnitude() const {
-    static std::mt19937 rng(std::random_device{}());
-    static std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
+    std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
     
     // Use a power law distribution for event magnitudes (small events more common)
-    double u = uniform_dist(rng);
+    double u = uniform_dist(rng_);
     return std::pow(u, 2.0); // Bias toward smaller events
 }
 
 double MarketEventGenerator::generateEventDuration() const {
-    static std::mt19937 rng(std::random_device{}());
-    static std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
+    std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
     
     // Events last between 30 seconds and 5 minutes
-    return 30.0 + uniform_dist(rng) * 270.0;
+    return 30.0 + uniform_dist(rng_) * 270.0;
 }
 
 std::string MarketEventGenerator::generateEventDescription(EventType type, const std::string& symbol) const {
@@ -373,17 +397,21 @@ MicrostructureNoise::MicrostructureNoise(double amplitude, double mean_reversion
     noise_dist_ = std::normal_distribution<double>(0.0, 1.0);
 }
 
+void MicrostructureNoise::seed(uint32_t seed) {
+    rng_.seed(seed);
+    noise_dist_.reset();
+    current_noise_ = 0.0;
+}
+
 double MicrostructureNoise::generateNoise(double dt) {
     // Generate mean-reverting noise
-    static double current_noise = 0.0;
-    
     // Mean reversion component
-    current_noise -= mean_reversion_speed_ * current_noise * dt;
+    current_noise_ -= mean_reversion_speed_ * current_noise_ * dt;
     
     // Random component
-    current_noise += noise_amplitude_ * std::sqrt(dt) * noise_dist_(rng_);
+    current_noise_ += noise_amplitude_ * std::sqrt(dt) * noise_dist_(rng_);
     
-    return current_noise;
+    return current_noise_;
 }
 
 } // namespace deepquote 

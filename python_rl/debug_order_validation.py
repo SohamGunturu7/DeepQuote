@@ -102,14 +102,15 @@ def test_agent_action():
     from deepquote_env import DeepQuoteEnv
     env = DeepQuoteEnv(symbols=["AAPL"], trader_id="test_agent", strategy_type="DQN")
     
-    obs = env.reset()
+    obs, _ = env.reset()
     print(f"Initial observation shape: {obs.shape}")
     
     agent_action = np.array([0, 0, 5.0, 100.0])
     print(f"Agent action: {agent_action}")
     
     try:
-        obs, reward, done, info = env.step(agent_action)
+        obs, reward, terminated, truncated, info = env.step(agent_action)
+        done = terminated or truncated
         print(f"✅ Step successful! Reward: {reward}, Done: {done}")
         print(f"Info: {info}")
     except Exception as e:

@@ -23,6 +23,8 @@ public:
     bool addOrder(shared_ptr<Order> order);
     bool cancelOrder(OrderId order_id);
     bool modifyOrder(OrderId order_id, Price new_price, Quantity new_quantity);
+    // Drop filled/cancelled orders resting at a price level
+    void removeInactiveOrders(Price price, Side side);
     
     // Order queries
     shared_ptr<Order> getOrder(OrderId order_id) const;

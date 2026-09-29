@@ -47,6 +47,12 @@ public:
     void stop();
     bool isRunning() const { return running_.load(); }
     
+    // Refresh quotes once on the caller's thread (use instead of start() for
+    // deterministic, single-threaded simulations such as RL training)
+    void step() { updateQuotes(); }
+    // Forget tracked orders, e.g. after MarketSimulator::reset() cleared the books
+    void reset();
+    
     // Configuration
     void setSpread(double spread_pct) { config_.spread_pct = spread_pct; }
     void setOrderSize(double size) { config_.order_size = size; }
@@ -74,9 +80,6 @@ private:
     std::unordered_map<std::string, std::vector<double>> price_history_;
     std::unordered_map<std::string, double> volatilities_;
     
-    // Order ID generation
-    std::atomic<OrderId> next_order_id_;
-    
     // Worker thread function
     void run();
     
@@ -88,7 +91,7 @@ private:
     void placeAskOrders(const std::string& symbol, double ask_price);
     
     // Helper methods
-    OrderId getNextOrderId() { return next_order_id_++; }
+    OrderId getNextOrderId() { return simulator_->getNextOrderId(); }
     double calculateAdaptiveSpread(const std::string& symbol, double mid_price);
     void updateVolatility(const std::string& symbol, double price);
     std::shared_ptr<Order> createOrder(const std::string& symbol, Side side, 

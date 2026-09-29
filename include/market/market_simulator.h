@@ -22,6 +22,10 @@ public:
     
     vector<Trade> processOrder(shared_ptr<Order> order);
     vector<Trade> processOrders(const vector<shared_ptr<Order>>& orders);
+    bool cancelOrder(const string& symbol, OrderId order_id);
+    
+    // Unique order IDs shared by every participant in this simulator
+    OrderId getNextOrderId() { return next_order_id_++; }
     
     OrderBookSnapshot getSnapshot(const string& symbol) const;
     vector<OrderBookSnapshot> getAllSnapshots() const;
@@ -83,11 +87,18 @@ public:
     // Market events and price movement
     void enableMarketEvents(bool enable = true);
     void setEventProbability(double probability);
+    void setEventLogging(bool enable);
+    // Seed every random source (price models, events, noise) for reproducible runs
+    void seed(uint32_t seed);
     void updateMarketEvents(double dt);
     vector<MarketEvent> getActiveEvents() const;
     size_t getActiveEventCount() const;
     
     void generatePriceMovement(double dt);
+    // Latent "true" price driven by the price model; liquidity providers quote around it.
+    // Returns 0 until market events have produced a price for the symbol.
+    double getFairPrice(const string& symbol) const;
+    void setFairPrice(const string& symbol, double price);
     void setPriceVolatility(const string& symbol, double volatility);
     void setPriceDrift(const string& symbol, double drift);
     
@@ -103,6 +114,7 @@ private:
     unordered_map<string, shared_ptr<Trader>> traders_;
     unordered_map<string, shared_ptr<RLTrader>> rl_traders_;
     unordered_map<string, double> mark_prices_;
+    unordered_map<string, double> fair_prices_;
     unordered_map<OrderId, string> order_to_trader_;
     TradeCallback global_trade_callback_;
     vector<Trade> all_trades_;
@@ -111,6 +123,7 @@ private:
     unordered_map<string, MicrostructureNoise> noise_generators_;
     bool market_events_enabled_;
     double last_update_time_;
+    OrderId next_order_id_ = 1;
     
     void initializeEngine(const string& symbol);
     void onTrade(const Trade& trade);
