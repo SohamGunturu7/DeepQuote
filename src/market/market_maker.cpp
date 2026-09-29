@@ -200,6 +200,10 @@ void MarketMaker::placeAskOrders(const std::string& symbol, double ask_price) {
 
 std::shared_ptr<Order> MarketMaker::createOrder(const std::string& symbol, Side side, 
                                                double price, double quantity) {
+    if (!(price > 0.0) || !(quantity > 0.0)) {
+        return nullptr;  // e.g. a deep bid level below zero on a very low-priced symbol
+    }
+    
     auto order = std::make_shared<Order>();
     order->id = getNextOrderId();
     order->side = side;

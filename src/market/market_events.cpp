@@ -23,7 +23,8 @@ double GBMPriceModel::generatePriceChange(double current_price, double dt) {
     double drift = mu_ * dt;
     double diffusion = sigma_ * std::sqrt(dt) * normal_dist_(rng_);
     
-    return current_price * (drift + diffusion);
+    // Apply the log-return multiplicatively so the price can never go negative
+    return current_price * (std::exp(drift + diffusion) - 1.0);
 }
 
 void GBMPriceModel::updateParameters(const MarketEvent& event) {
@@ -91,7 +92,8 @@ double JumpDiffusionModel::generatePriceChange(double current_price, double dt) 
         jump = jump_mu_ + jump_sigma_ * normal_dist_(rng_);
     }
     
-    return current_price * (drift + diffusion + jump);
+    // Apply the log-return multiplicatively so the price can never go negative
+    return current_price * (std::exp(drift + diffusion + jump) - 1.0);
 }
 
 void JumpDiffusionModel::updateParameters(const MarketEvent& event) {
@@ -146,7 +148,12 @@ MarketEventGenerator::MarketEventGenerator(const std::vector<std::string>& symbo
     }
 }
 
+// dt is in years (the price models' unit); events are timed in trading seconds
+static constexpr double TRADING_SECONDS_PER_YEAR = 252.0 * 6.5 * 3600.0;
+
 void MarketEventGenerator::update(double dt) {
+    sim_seconds_ += dt * TRADING_SECONDS_PER_YEAR;
+    
     // Clear expired events
     clearExpiredEvents();
     
@@ -185,6 +192,7 @@ void MarketEventGenerator::update(double dt) {
         event.end_time = event.start_time + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
             std::chrono::duration<double>(event.duration));
         event.is_active = true;
+        event.sim_end_seconds = sim_seconds_ + event.duration;
         
         // Add to active events
         active_events_.push_back(event);
@@ -215,6 +223,7 @@ void MarketEventGenerator::seed(uint32_t seed) {
 }
 
 void MarketEventGenerator::reset() {
+    sim_seconds_ = 0.0;
     active_events_.clear();
     for (auto& [sym, model] : price_models_) {
         model->reset();
@@ -226,14 +235,24 @@ std::vector<MarketEvent> MarketEventGenerator::getActiveEvents() const {
 }
 
 void MarketEventGenerator::clearExpiredEvents() {
-    auto now = std::chrono::steady_clock::now();
+    size_t before = active_events_.size();
     active_events_.erase(
         std::remove_if(active_events_.begin(), active_events_.end(),
             [&](const MarketEvent& event) {
-                return now > event.end_time;
+                return sim_seconds_ > event.sim_end_seconds;
             }),
         active_events_.end()
     );
+    
+    // An event's effect ends with it: rebuild model parameters from the events still active
+    if (active_events_.size() != before) {
+        for (auto& [sym, model] : price_models_) {
+            model->reset();
+            for (const auto& event : active_events_) {
+                model->updateParameters(event);
+            }
+        }
+    }
 }
 
 double MarketEventGenerator::generatePriceChange(const std::string& symbol, double current_price, double dt) {
@@ -401,6 +420,11 @@ void MicrostructureNoise::seed(uint32_t seed) {
     rng_.seed(seed);
     noise_dist_.reset();
     current_noise_ = 0.0;
+}
+
+double MicrostructureNoise::generateNoiseIncrement(double dt) {
+    double previous = current_noise_;
+    return generateNoise(dt) - previous;
 }
 
 double MicrostructureNoise::generateNoise(double dt) {

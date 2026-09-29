@@ -650,7 +650,7 @@ void MarketSimulator::generatePriceMovement(double dt) {
         
         auto noise_it = noise_generators_.find(symbol);
         if (noise_it != noise_generators_.end()) {
-            price_change += noise_it->second.generateNoise(actual_dt) * current_price;
+            price_change += noise_it->second.generateNoiseIncrement(actual_dt) * current_price;
         }
         
         fair_prices_[symbol] = std::max(0.01, current_price + price_change);

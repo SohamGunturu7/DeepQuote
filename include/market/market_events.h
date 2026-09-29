@@ -39,6 +39,7 @@ struct MarketEvent {
     double duration;            // How long the event lasts (seconds)
     std::chrono::steady_clock::time_point start_time;
     std::chrono::steady_clock::time_point end_time;
+    double sim_end_seconds = 0.0;  // expiry in simulated trading seconds
     std::string description;
     bool is_active;
     
@@ -118,6 +119,7 @@ private:
     double volatility_multiplier_;
     double correlation_strength_;
     bool verbose_ = true;
+    double sim_seconds_ = 0.0;  // simulated trading seconds elapsed
     
     // Event history
     std::vector<MarketEvent> active_events_;
@@ -184,7 +186,10 @@ private:
     
 public:
     MicrostructureNoise(double amplitude = 0.001, double mean_reversion = 0.1);
+    // Level of the mean-reverting noise process (a relative price deviation)
     double generateNoise(double dt);
+    // Change in that level; add this to returns so noise stays a bounded deviation
+    double generateNoiseIncrement(double dt);
     void seed(uint32_t seed);
     void setAmplitude(double amplitude) { noise_amplitude_ = amplitude; }
 };
