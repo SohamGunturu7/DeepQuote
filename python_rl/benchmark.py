@@ -67,7 +67,7 @@ def bench_matching(backend: str, stream, repeats: int) -> float:
 # 2. One market tick -------------------------------------------------------
 
 def bench_market_tick(backend: str, levels: int, n_steps: int, repeats: int) -> float:
-    env = DeepQuoteEnv(symbols=["AAPL", "GOOGL"], backend=backend, mm_levels=levels)
+    env = DeepQuoteEnv(symbols=["AAPL"], backend=backend, mm_levels=levels)
     env.reset(seed=0)
     sim, mm = env.sim, env.market_maker
 
@@ -117,7 +117,7 @@ def main():
     ])
 
     n = int(5_000 * scale)
-    report("2. Market tick (price move + market maker re-quote, 2 symbols)", "/s", [
+    report("2. Market tick (price move + market maker re-quote, 1 symbol)", "/s", [
         (f"{levels} levels per side", *(bench_market_tick(b, levels, n, repeats) for b in BACKENDS))
         for levels in (5, 20, 50)
     ])
@@ -126,7 +126,7 @@ def main():
     report("3. Full env.step() with random actions", "/s", [
         (f"{len(syms)} symbol(s), {levels} levels",
          *(bench_env_step(b, syms, levels, n, repeats) for b in BACKENDS))
-        for syms, levels in ((["AAPL"], 5), (["AAPL", "GOOGL"], 5), (["AAPL", "GOOGL"], 50))
+        for syms, levels in ((["AAPL"], 5), (["AAPL"], 50), (["AAPL", "GOOGL"], 5))
     ])
 
 

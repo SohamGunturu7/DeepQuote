@@ -113,7 +113,7 @@ from agents import create_agent
 
 # Create environment
 env = DeepQuoteEnv(
-    symbols=["AAPL", "GOOGL"],
+    symbols=["AAPL"],
     initial_cash=100000.0,
     max_position=1000.0,
 )
@@ -139,7 +139,7 @@ from train import train_agent
 # Train PPO agent
 results = train_agent(
     agent_type="PPO",
-    symbols=["AAPL", "GOOGL"],
+    symbols=["AAPL"],
     initial_cash=100000.0,
     total_timesteps=100000,
     learning_rate=3e-4,
@@ -155,7 +155,7 @@ from train import compare_agents
 # Compare different strategies
 results = compare_agents(
     agent_types=["PPO", "SAC", "MarketMaking", "MeanReversion", "Momentum", "Arbitrage", "GridTrading", "VolatilityBreakout", "PairsTrading"],
-    symbols=["AAPL", "GOOGL"],
+    symbols=["AAPL", "GOOGL"],  # Arbitrage and PairsTrading need two symbols
     total_timesteps=50000
 )
 ```

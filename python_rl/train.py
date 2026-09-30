@@ -66,7 +66,7 @@ class TrainingCallback:
 
 # Main training function
 def train_agent(agent_type: str = "PPO",
-                symbols: List[str] = ["AAPL", "GOOGL"],
+                symbols: List[str] = ["AAPL"],
                 initial_cash: float = 100000.0,
                 max_steps: int = 1000,
                 total_timesteps: int = 100000,
@@ -240,7 +240,7 @@ def evaluate_agent(agent, env: DeepQuoteEnv, n_episodes: int = 10, max_steps: in
 
 # Agent comparison function
 def compare_agents(agent_types: List[str] = ["PPO", "SAC", "MarketMaking", "MeanReversion"],
-                  symbols: List[str] = ["AAPL", "GOOGL"],
+                  symbols: List[str] = ["AAPL"],
                   initial_cash: float = 100000.0,
                   total_timesteps: int = 50000,
                   max_steps: int = 1000,
@@ -352,7 +352,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train and compare DeepQuote agents on the C++ market simulator")
     parser.add_argument("--agents", nargs="+", default=["PPO", "SAC", "MarketMaking", "MeanReversion"],
                         help="Agent types: PPO SAC TD3 A2C MarketMaking MeanReversion Momentum ...")
-    parser.add_argument("--symbols", nargs="+", default=["AAPL", "GOOGL"])
+    parser.add_argument("--symbols", nargs="+", default=["AAPL"])
     parser.add_argument("--initial-cash", type=float, default=100000.0)
     parser.add_argument("--timesteps", type=int, default=50000, help="Training timesteps per RL agent")
     parser.add_argument("--max-steps", type=int, default=1000, help="Steps per episode")

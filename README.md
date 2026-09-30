@@ -52,7 +52,7 @@ automatically if the module isn't installed.
 ```python
 from deepquote_env import DeepQuoteEnv
 
-env = DeepQuoteEnv(symbols=["AAPL", "GOOGL"])
+env = DeepQuoteEnv(symbols=["AAPL"])
 obs, info = env.reset(seed=0)
 done = False
 while not done:
