@@ -31,18 +31,27 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-try:
-    import deepquote_simulator as dq
-except ImportError:
-    # Fall back to the CMake build directory (mkdir build && cd build && cmake .. && make)
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build"))
+
+def load_backend(backend: str):
+    """Return the simulator module: "cpp" (the C++ extension) or "python" (pysim.py)."""
+    if backend == "python":
+        import pysim
+        return pysim
+    if backend != "cpp":
+        raise ValueError(f"Unknown backend {backend!r}; expected 'cpp' or 'python'")
     try:
-        import deepquote_simulator as dq
-    except ImportError as e:
-        raise ImportError(
-            "deepquote_simulator extension not found. Build it with `pip install .` "
-            "from the repo root, or `mkdir build && cd build && cmake .. && make`."
-        ) from e
+        import deepquote_simulator
+    except ImportError:
+        # Fall back to the CMake build directory (mkdir build && cd build && cmake .. && make)
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build"))
+        try:
+            import deepquote_simulator
+        except ImportError as e:
+            raise ImportError(
+                "deepquote_simulator extension not found. Build it with `pip install .` "
+                "from the repo root, or `mkdir build && cd build && cmake .. && make`."
+            ) from e
+    return deepquote_simulator
 
 
 class ActionType(IntEnum):
@@ -82,8 +91,12 @@ class DeepQuoteEnv(gym.Env):
                  verbose: bool = False,
                  trader_id: str = "agent_1",
                  strategy_type: str = "RL",
-                 render_mode: Optional[str] = None):
+                 render_mode: Optional[str] = None,
+                 backend: str = "cpp"):
         super().__init__()
+
+        self.dq = dq = load_backend(backend)
+        self.backend = backend
 
         self.symbols = list(symbols)
         self.initial_cash = initial_cash
@@ -212,26 +225,26 @@ class DeepQuoteEnv(gym.Env):
         if quantity < 1.0:
             return
 
-        order = dq.Order()
+        order = self.dq.Order()
         order.id = self.sim.next_order_id()
-        order.side = dq.Side.BUY if is_buy else dq.Side.SELL
+        order.side = self.dq.Side.BUY if is_buy else self.dq.Side.SELL
         order.quantity = float(np.floor(quantity))
         order.symbol = symbol
         order.trader_id = self.trader_id
         order.strategy_id = self.trader.get_strategy_type()
 
         if action_type in (ActionType.BUY_MARKET, ActionType.SELL_MARKET):
-            order.type = dq.OrderType.MARKET
+            order.type = self.dq.OrderType.MARKET
             order.price = 0.0
         else:
             mid = self._mid_price(symbol)
-            order.type = dq.OrderType.LIMIT
+            order.type = self.dq.OrderType.LIMIT
             order.price = round(mid * (1.0 + self.price_band * (2.0 * price_norm - 1.0)), 2)
             if order.price <= 0:
                 return
 
         self.sim.process_order(order)
-        if order.type == dq.OrderType.LIMIT:
+        if order.type == self.dq.OrderType.LIMIT:
             self.open_orders.append((order.id, symbol, self.current_step))
 
     def _limit_quantity(self, symbol: str, quantity: float, is_buy: bool) -> float:

@@ -185,6 +185,19 @@ volatility_trader = create_agent("VolatilityBreakout", env, volatility_window=20
 pairs_trader = create_agent("PairsTrading", env, entry_threshold=2.0, exit_threshold=0.5, position_size=0.2)
 ```
 
+## ⚡ C++ vs Python Backend
+
+`pysim.py` is a pure-Python port of the C++ market core with the same API. Choose one with
+`DeepQuoteEnv(backend="cpp")` (default) or `backend="python"`. Given the same actions and
+fair prices, both produce identical observations; seeded random price paths differ because
+they use different random number generators.
+
+Compare their speed with:
+
+```bash
+python benchmark.py          # or --quick
+```
+
 ## 🔧 Configuration
 
 ### Environment Parameters

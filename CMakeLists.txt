@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
 project(DeepQuote VERSION 1.0.0 LANGUAGES CXX)
 
+# Build optimized unless told otherwise (CMake's default is no optimization at all)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
